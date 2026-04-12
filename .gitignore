@@ -1,3 +1,30 @@
 # Godot 4+ specific ignores
 .godot/
+
+# Exported builds
 /android/
+/exports/
+*.apk
+*.aab
+*.exe
+*.x86_64
+*.pck
+
+# Godot import backups
+*.import.bak
+
+# Mono/.NET (if using C#)
+.mono/
+data_*/
+mono_crash.*.json
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE / Editor files
+.vscode/
+*.swp
+*.swo
+*~
