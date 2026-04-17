@@ -1,0 +1,178 @@
+name: PR CI
+
+# Runs on every pull request targeting main:
+#   1. `test`      - runs GDScript unit tests (GUT) on Linux if GUT is installed
+#   2. `build-ios` - exports the Godot project for iOS and compiles the generated
+#                    Xcode project unsigned, to verify the game still builds.
+#
+# Adjust `GODOT_VERSION` and `IOS_EXPORT_PRESET` below if your setup differs.
+# NOTE: `export_presets.cfg` must be committed to the repo for the iOS export
+# to work in CI. Godot gitignores it by default -- you will need to
+# remove it from .gitignore or force-add it (`git add -f export_presets.cfg`).
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: pr-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GODOT_VERSION: "4.6"
+  GODOT_STATUS: "stable"
+  IOS_EXPORT_PRESET: "iOS"
+  # Path (relative to repo root) where Godot will emit the Xcode project.
+  IOS_BUILD_DIR: "build/ios"
+  IOS_XCODE_PROJECT_NAME: "TheMotorcycleGame"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # GDScript tests via GUT (https://github.com/bitwes/Gut).
+  # If the project doesn't have GUT installed under `addons/gut/`, this job
+  # logs a message and exits successfully so it doesn't block PRs before
+  # any tests exist.
+  # ---------------------------------------------------------------------------
+  test:
+    name: Run GDScript Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Cache Godot binary
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/bin/godot
+          key: godot-linux-${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}
+
+      - name: Install Godot ${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }} (headless)
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          VERSION="${GODOT_VERSION}-${GODOT_STATUS}"
+          ZIP="Godot_v${VERSION}_linux.x86_64.zip"
+          URL="https://github.com/godotengine/godot/releases/download/${VERSION}/${ZIP}"
+          echo "Downloading $URL"
+          curl -fL --retry 3 -o /tmp/godot.zip "$URL"
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          sudo mv /tmp/godot/Godot_v${VERSION}_linux.x86_64 /usr/local/bin/godot
+          sudo chmod +x /usr/local/bin/godot
+
+      - name: Verify Godot install
+        run: godot --version
+
+      - name: Import project resources
+        # First headless run imports assets and generates the .godot/ cache.
+        run: |
+          godot --headless --import --quit || true
+
+      - name: Run GUT tests
+        run: |
+          set -euo pipefail
+          if [ ! -f "addons/gut/gut_cmdln.gd" ]; then
+            echo "::notice::GUT (Godot Unit Test) is not installed under addons/gut/."
+            echo "::notice::Skipping tests. To enable: install GUT (https://github.com/bitwes/Gut)"
+            echo "::notice::and put test scripts under res://tests/ (named test_*.gd)."
+            exit 0
+          fi
+          mkdir -p tests
+          godot --headless \
+            -s addons/gut/gut_cmdln.gd \
+            -gdir=res://tests \
+            -ginclude_subdirs=true \
+            -gexit \
+            -gexit_on_success=true
+
+  # ---------------------------------------------------------------------------
+  # Verify the iOS build compiles. No signing -- this is only a build check.
+  # ---------------------------------------------------------------------------
+  build-ios:
+    name: Verify iOS Build
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Cache Godot + export templates
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/bin/godot
+            ~/Library/Application Support/Godot/export_templates
+          key: godot-macos-${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}
+
+      - name: Install Godot ${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }} + iOS templates
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          VERSION="${GODOT_VERSION}-${GODOT_STATUS}"
+
+          # Godot binary (macOS, universal)
+          curl -fL --retry 3 \
+            -o /tmp/godot.zip \
+            "https://github.com/godotengine/godot/releases/download/${VERSION}/Godot_v${VERSION}_macos.universal.zip"
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          sudo mv /tmp/godot/Godot.app /Applications/Godot.app
+          sudo ln -sf /Applications/Godot.app/Contents/MacOS/Godot /usr/local/bin/godot
+
+          # Export templates
+          curl -fL --retry 3 \
+            -o /tmp/godot_templates.tpz \
+            "https://github.com/godotengine/godot/releases/download/${VERSION}/Godot_v${VERSION}_export_templates.tpz"
+          TEMPLATES_DIR="$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION}.${GODOT_STATUS}"
+          mkdir -p "$TEMPLATES_DIR"
+          unzip -q /tmp/godot_templates.tpz -d /tmp/godot_templates
+          mv /tmp/godot_templates/templates/* "$TEMPLATES_DIR/"
+
+      - name: Verify Godot install
+        run: godot --version
+
+      - name: Import project resources
+        run: godot --headless --import --quit || true
+
+      - name: Ensure export_presets.cfg exists
+        run: |
+          if [ ! -f "export_presets.cfg" ]; then
+            echo "::error::export_presets.cfg is missing. Commit it to the repo"
+            echo "::error::(you may need to remove it from .gitignore or run 'git add -f export_presets.cfg')"
+            echo "::error::so CI can export the iOS Xcode project."
+            exit 1
+          fi
+
+      - name: Export iOS Xcode project (debug, unsigned)
+        run: |
+          set -euo pipefail
+          mkdir -p "${IOS_BUILD_DIR}"
+          godot --headless \
+            --export-debug "${IOS_EXPORT_PRESET}" \
+            "${IOS_BUILD_DIR}/${IOS_XCODE_PROJECT_NAME}.xcodeproj"
+
+      - name: Build iOS app (unsigned, build-only verification)
+        working-directory: ${{ env.IOS_BUILD_DIR }}
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project "${IOS_XCODE_PROJECT_NAME}.xcodeproj" \
+            -scheme "${IOS_XCODE_PROJECT_NAME}" \
+            -configuration Debug \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            clean build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
