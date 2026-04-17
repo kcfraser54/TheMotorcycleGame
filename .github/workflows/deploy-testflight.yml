@@ -8,20 +8,21 @@ name: Deploy to TestFlight
 # Required repository secrets
 # ---------------------------------------------------------------------------
 # Code signing:
-#   IOS_DIST_CERTIFICATE_P12_BASE64   base64 of your Apple Distribution .p12
-#   IOS_DIST_CERTIFICATE_PASSWORD     password for the .p12
-#   IOS_PROVISIONING_PROFILE_BASE64   base64 of your App Store provisioning profile (.mobileprovision)
-#   IOS_KEYCHAIN_PASSWORD             any ephemeral password for the temp keychain (e.g. a random string)
+#   APPLE_CERTIFICATE_BASE64          base64 of your Apple Distribution .p12
+#   APPLE_CERTIFICATE_PASSWORD        password for the .p12
+#   APPLE_PROVISIONING_PROFILE        base64 of your App Store provisioning profile (.mobileprovision)
 #
 # Project identity:
-#   IOS_TEAM_ID                       your 10-char Apple Developer team ID
-#   IOS_BUNDLE_IDENTIFIER             e.g. com.yourcompany.themotorcyclegame
-#   IOS_PROVISIONING_PROFILE_NAME     the "Name" of the provisioning profile (as shown in Apple Developer portal)
+#   APPLE_TEAM_ID                     your 10-char Apple Developer team ID
 #
 # App Store Connect API key (for TestFlight upload):
 #   APP_STORE_CONNECT_API_KEY_ID      e.g. ABCDE12345
 #   APP_STORE_CONNECT_API_ISSUER_ID   UUID issuer id
 #   APP_STORE_CONNECT_API_KEY_BASE64  base64 of the .p8 key file
+#
+# The temp-keychain password is generated at runtime, and the provisioning
+# profile's Name, UUID, and bundle identifier are extracted from the
+# profile itself -- so no additional secrets are needed.
 #
 # NOTE: `export_presets.cfg` must be committed to the repo for Godot's iOS
 # export to work in CI.
@@ -100,46 +101,66 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Import signing certificate & provisioning profile
         env:
-          IOS_DIST_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_DIST_CERTIFICATE_P12_BASE64 }}
-          IOS_DIST_CERTIFICATE_PASSWORD:   ${{ secrets.IOS_DIST_CERTIFICATE_PASSWORD }}
-          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
-          IOS_KEYCHAIN_PASSWORD:           ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+          APPLE_CERTIFICATE_BASE64:   ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_PROVISIONING_PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
         run: |
           set -euo pipefail
 
           CERT_PATH="$RUNNER_TEMP/dist_cert.p12"
           PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
+          PROFILE_PLIST="$RUNNER_TEMP/profile.plist"
           KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
 
-          echo "$IOS_DIST_CERTIFICATE_P12_BASE64" | base64 --decode > "$CERT_PATH"
-          echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+          # Generate an ephemeral password for the temp keychain (never logged).
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+
+          echo "$APPLE_CERTIFICATE_BASE64"   | base64 --decode > "$CERT_PATH"
+          echo "$APPLE_PROVISIONING_PROFILE" | base64 --decode > "$PROFILE_PATH"
 
           # Create a temporary keychain dedicated to this run.
-          security create-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
           security import "$CERT_PATH" \
-            -P "$IOS_DIST_CERTIFICATE_PASSWORD" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
             -A -t cert -f pkcs12 \
             -k "$KEYCHAIN_PATH"
           security set-key-partition-list \
             -S apple-tool:,apple: \
-            -k "$IOS_KEYCHAIN_PASSWORD" \
+            -k "$KEYCHAIN_PASSWORD" \
             "$KEYCHAIN_PATH" > /dev/null
 
           # Add the temp keychain to the search list, keeping login keychain.
           security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain
 
-          # Install the provisioning profile.
+          # Decode the provisioning profile to a plist so we can read fields.
+          security cms -D -i "$PROFILE_PATH" -o "$PROFILE_PLIST"
+
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID"         "$PROFILE_PLIST")
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print :Name"         "$PROFILE_PLIST")
+          # application-identifier looks like "TEAMID.com.example.bundle"; strip the team prefix.
+          APP_ID=$(/usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" "$PROFILE_PLIST")
+          BUNDLE_ID="${APP_ID#*.}"
+
+          # Install the provisioning profile into the expected location.
           PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$PROFILES_DIR"
-          UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" \
-            /dev/stdin <<< "$(security cms -D -i "$PROFILE_PATH")")
-          cp "$PROFILE_PATH" "$PROFILES_DIR/$UUID.mobileprovision"
+          cp "$PROFILE_PATH" "$PROFILES_DIR/$PROFILE_UUID.mobileprovision"
 
-          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
-          echo "PROVISIONING_PROFILE_UUID=$UUID" >> "$GITHUB_ENV"
+          # Export values for later steps (KEYCHAIN_PASSWORD is masked).
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+          {
+            echo "KEYCHAIN_PATH=$KEYCHAIN_PATH"
+            echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD"
+            echo "PROVISIONING_PROFILE_UUID=$PROFILE_UUID"
+            echo "PROVISIONING_PROFILE_NAME=$PROFILE_NAME"
+            echo "IOS_BUNDLE_IDENTIFIER=$BUNDLE_ID"
+          } >> "$GITHUB_ENV"
+
+          echo "Using profile: $PROFILE_NAME ($PROFILE_UUID)"
+          echo "Bundle identifier: $BUNDLE_ID"
 
       # -----------------------------------------------------------------------
       # Export Godot iOS Xcode project
@@ -169,8 +190,7 @@ jobs:
       - name: Archive (xcodebuild)
         working-directory: ${{ env.IOS_BUILD_DIR }}
         env:
-          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
-          IOS_PROVISIONING_PROFILE_NAME: ${{ secrets.IOS_PROVISIONING_PROFILE_NAME }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
           xcodebuild \
@@ -181,16 +201,14 @@ jobs:
             -destination "generic/platform=iOS" \
             -archivePath "$RUNNER_TEMP/${IOS_XCODE_PROJECT_NAME}.xcarchive" \
             archive \
-            DEVELOPMENT_TEAM="$IOS_TEAM_ID" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             CODE_SIGN_STYLE=Manual \
-            PROVISIONING_PROFILE_SPECIFIER="$IOS_PROVISIONING_PROFILE_NAME" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROVISIONING_PROFILE_NAME" \
             OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH"
 
       - name: Create ExportOptions.plist
         env:
-          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
-          IOS_BUNDLE_IDENTIFIER: ${{ secrets.IOS_BUNDLE_IDENTIFIER }}
-          IOS_PROVISIONING_PROFILE_NAME: ${{ secrets.IOS_PROVISIONING_PROFILE_NAME }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -200,7 +218,7 @@ jobs:
             <key>method</key>
             <string>app-store</string>
             <key>teamID</key>
-            <string>${IOS_TEAM_ID}</string>
+            <string>${APPLE_TEAM_ID}</string>
             <key>signingStyle</key>
             <string>manual</string>
             <key>stripSwiftSymbols</key>
@@ -210,7 +228,7 @@ jobs:
             <key>provisioningProfiles</key>
             <dict>
               <key>${IOS_BUNDLE_IDENTIFIER}</key>
-              <string>${IOS_PROVISIONING_PROFILE_NAME}</string>
+              <string>${PROVISIONING_PROFILE_NAME}</string>
             </dict>
           </dict>
           </plist>
