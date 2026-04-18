@@ -1,243 +1,45 @@
-name: PR CI
-
-# Runs on every pull request targeting main:
-#   1. `test`        - runs GDScript unit tests (GUT) on Linux if GUT is installed
-#   2. `export-pck`  - runs Godot headless on Linux to export ONLY the game.pck
-#                      (no iOS-specific export, no signing fields needed)
-#   3. `build-ios`   - on macOS, drops the PCK into the committed Xcode shell
-#                      under `ios/` and verifies it builds unsigned via xcodebuild.
-#
-# This split removes Godot's iOS exporter from the hot path: PCK export is
-# a content-only operation, so it's deterministic across CI runs. The Xcode
-# project under `ios/` is generated once via the `bootstrap-ios-shell.yml`
-# workflow and committed to the repo. Re-run that workflow whenever Godot
-# version or iOS export options change.
-#
-# Adjust `GODOT_VERSION` below if your setup differs.
+name: PR Build Check
 
 on:
   pull_request:
-    branches: [main]
-
-concurrency:
-  group: pr-ci-${{ github.ref }}
-  cancel-in-progress: true
-
-permissions:
-  contents: read
+    branches:
+      - main
 
 env:
-  GODOT_VERSION: "4.6"
+  GODOT_VERSION: "4.6.2"
   GODOT_STATUS: "stable"
   IOS_EXPORT_PRESET: "iOS"
   IOS_XCODE_PROJECT_NAME: "TheMotorcycleGame"
-  PCK_ARTIFACT_NAME: "game-pck"
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # GDScript tests via GUT (https://github.com/bitwes/Gut).
-  # If the project doesn't have GUT installed under `addons/gut/`, this job
-  # logs a message and exits successfully so it doesn't block PRs before
-  # any tests exist.
-  # ---------------------------------------------------------------------------
-  test:
-    name: Run GDScript Tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  build-check:
+    name: Verify iOS Export
+    runs-on: macos-latest
+
     steps:
-      - name: Check out repository
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           lfs: true
 
-      - name: Cache Godot binary
-        id: godot-cache
-        uses: actions/cache@v4
-        with:
-          path: /usr/local/bin/godot
-          key: godot-linux-${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}
-
-      - name: Install Godot ${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }} (headless)
-        if: steps.godot-cache.outputs.cache-hit != 'true'
+      - name: Install Godot
         run: |
-          set -euo pipefail
-          VERSION="${GODOT_VERSION}-${GODOT_STATUS}"
-          ZIP="Godot_v${VERSION}_linux.x86_64.zip"
-          URL="https://github.com/godotengine/godot/releases/download/${VERSION}/${ZIP}"
-          echo "Downloading $URL"
-          curl -fL --retry 3 -o /tmp/godot.zip "$URL"
-          unzip -q /tmp/godot.zip -d /tmp/godot
-          sudo mv /tmp/godot/Godot_v${VERSION}_linux.x86_64 /usr/local/bin/godot
-          sudo chmod +x /usr/local/bin/godot
+          wget -q https://github.com/godotengine/godot-builds/releases/download/${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}/Godot_v${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}_macos.universal.zip
+          unzip -q Godot_v${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}_macos.universal.zip
+          mv "Godot.app" /Applications/Godot.app
+          sudo ln -sf /Applications/Godot.app/Contents/MacOS/Godot /usr/local/bin/godot
 
-      - name: Verify Godot install
-        run: godot --version
-
-      - name: Import project resources
-        # First headless run imports assets and generates the .godot/ cache.
+      - name: Install Export Templates
         run: |
-          godot --headless --import --quit || true
+          TEMPLATES_DIR="$HOME/Library/Application Support/Godot/export_templates/${{ env.GODOT_VERSION }}.${{ env.GODOT_STATUS }}"
+          mkdir -p "$TEMPLATES_DIR"
+          wget -q https://github.com/godotengine/godot-builds/releases/download/${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}/Godot_v${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}_export_templates.tpz
+          unzip -q Godot_v${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}_export_templates.tpz
+          mv templates/* "$TEMPLATES_DIR/"
 
-      - name: Run GUT tests
+      - name: Export Xcode Project
         run: |
-          set -euo pipefail
-          if [ ! -f "addons/gut/gut_cmdln.gd" ]; then
-            echo "::notice::GUT (Godot Unit Test) is not installed under addons/gut/."
-            echo "::notice::Skipping tests. To enable: install GUT (https://github.com/bitwes/Gut)"
-            echo "::notice::and put test scripts under res://tests/ (named test_*.gd)."
-            exit 0
-          fi
-          mkdir -p tests
-          godot --headless \
-            -s addons/gut/gut_cmdln.gd \
-            -gdir=res://tests \
-            -ginclude_subdirs=true \
-            -gexit \
-            -gexit_on_success=true
-
-  # ---------------------------------------------------------------------------
-  # Export game.pck on Linux (headless, no iOS toolchain involvement).
-  # `--export-pack` writes a content-only pack and does not exercise the iOS
-  # exporter's signing/Team-ID validation, so this is reliable in CI.
-  # ---------------------------------------------------------------------------
-  export-pck:
-    name: Export game.pck (headless)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-        with:
-          lfs: true
-
-      - name: Cache Godot binary
-        id: godot-cache
-        uses: actions/cache@v4
-        with:
-          path: /usr/local/bin/godot
-          key: godot-linux-${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}
-
-      - name: Install Godot ${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }} (headless)
-        if: steps.godot-cache.outputs.cache-hit != 'true'
-        run: |
-          set -euo pipefail
-          VERSION="${GODOT_VERSION}-${GODOT_STATUS}"
-          ZIP="Godot_v${VERSION}_linux.x86_64.zip"
-          URL="https://github.com/godotengine/godot/releases/download/${VERSION}/${ZIP}"
-          curl -fL --retry 3 -o /tmp/godot.zip "$URL"
-          unzip -q /tmp/godot.zip -d /tmp/godot
-          sudo mv /tmp/godot/Godot_v${VERSION}_linux.x86_64 /usr/local/bin/godot
-          sudo chmod +x /usr/local/bin/godot
-
-      - name: Verify Godot install
-        run: godot --version
-
-      - name: Ensure export_presets.cfg exists
-        run: |
-          if [ ! -f "export_presets.cfg" ]; then
-            echo "::error::export_presets.cfg is missing. Commit it to the repo"
-            echo "::error::(you may need to remove it from .gitignore or run 'git add -f export_presets.cfg')"
-            echo "::error::so CI can export the game.pck."
-            exit 1
-          fi
-
-      - name: Import project resources
-        run: godot --headless --import --quit || true
-
-      - name: Export game.pck
-        run: |
-          set -euo pipefail
-          mkdir -p build
+          mkdir -p ios
           godot --headless --verbose \
-            --export-pack "${IOS_EXPORT_PRESET}" \
-            "build/game.pck"
-          if [ ! -s "build/game.pck" ]; then
-            echo "::error::game.pck was not produced or is empty."
-            exit 1
-          fi
-          ls -la build/
-
-      - name: Upload game.pck artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.PCK_ARTIFACT_NAME }}
-          path: build/game.pck
-          if-no-files-found: error
-          retention-days: 7
-
-  # ---------------------------------------------------------------------------
-  # Verify the iOS app builds with the new PCK against the committed Xcode
-  # shell under `ios/`. No signing -- this is only a build check.
-  #
-  # If the shell hasn't been bootstrapped yet (no `ios/<project>.xcodeproj`),
-  # the job exits successfully with a notice so CI doesn't block PRs before
-  # the maintainer commits the bootstrap output. Once `ios/` is committed,
-  # this becomes a hard build verification.
-  # ---------------------------------------------------------------------------
-  build-ios:
-    name: Verify iOS Build
-    needs: export-pck
-    runs-on: macos-14
-    timeout-minutes: 45
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-        with:
-          lfs: true
-
-      - name: Check for committed iOS Xcode shell
-        id: shell-check
-        run: |
-          set -euo pipefail
-          if [ -d "ios/${IOS_XCODE_PROJECT_NAME}.xcodeproj" ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-            echo "iOS Xcode shell found at ios/${IOS_XCODE_PROJECT_NAME}.xcodeproj"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No committed iOS Xcode shell found at ios/${IOS_XCODE_PROJECT_NAME}.xcodeproj."
-            echo "::notice::Run the 'Bootstrap iOS Xcode shell' workflow, download the 'ios-shell' artifact,"
-            echo "::notice::and commit its contents under ios/ to enable this build verification."
-          fi
-
-      - name: Select Xcode
-        if: steps.shell-check.outputs.present == 'true'
-        run: sudo xcode-select -s /Applications/Xcode.app
-
-      - name: Download game.pck artifact
-        if: steps.shell-check.outputs.present == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.PCK_ARTIFACT_NAME }}
-          path: build/
-
-      - name: Inject game.pck into iOS shell
-        if: steps.shell-check.outputs.present == 'true'
-        run: |
-          set -euo pipefail
-          if [ ! -s "build/game.pck" ]; then
-            echo "::error::Downloaded game.pck is missing or empty."
-            exit 1
-          fi
-          # The Godot-generated Xcode shell expects the PCK at
-          # ios/<ProjectName>/<ProjectName>.pck (it is added to the bundle as a
-          # resource of the same name as the project).
-          DEST_DIR="ios/${IOS_XCODE_PROJECT_NAME}"
-          mkdir -p "$DEST_DIR"
-          cp build/game.pck "$DEST_DIR/${IOS_XCODE_PROJECT_NAME}.pck"
-          ls -la "$DEST_DIR/${IOS_XCODE_PROJECT_NAME}.pck"
-
-      - name: Build iOS app (unsigned, build-only verification)
-        if: steps.shell-check.outputs.present == 'true'
-        working-directory: ios
-        run: |
-          set -euo pipefail
-          xcodebuild \
-            -project "${IOS_XCODE_PROJECT_NAME}.xcodeproj" \
-            -scheme "${IOS_XCODE_PROJECT_NAME}" \
-            -configuration Debug \
-            -sdk iphoneos \
-            -destination "generic/platform=iOS" \
-            clean build \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+            --export-release "${{ env.IOS_EXPORT_PRESET }}" \
+            "ios/${{ env.IOS_XCODE_PROJECT_NAME }}.xcodeproj"

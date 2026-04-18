@@ -1,0 +1,79 @@
+name: Export Diagnostic
+
+on:
+  workflow_dispatch:  # manual trigger only — run it from the Actions tab
+
+env:
+  GODOT_VERSION: "4.6.2"
+  GODOT_STATUS: "stable"
+  IOS_EXPORT_PRESET: "iOS"
+  IOS_XCODE_PROJECT_NAME: "TheMotorcycleGame"
+
+jobs:
+  diagnose:
+    name: Diagnose iOS Export
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Godot
+        run: |
+          wget -q https://github.com/godotengine/godot-builds/releases/download/${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}/Godot_v${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}_macos.universal.zip
+          unzip -q Godot_v${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}_macos.universal.zip
+          mv "Godot.app" /Applications/Godot.app
+          sudo ln -sf /Applications/Godot.app/Contents/MacOS/Godot /usr/local/bin/godot
+
+      - name: Install Export Templates
+        run: |
+          TEMPLATES_DIR="$HOME/Library/Application Support/Godot/export_templates/${{ env.GODOT_VERSION }}.${{ env.GODOT_STATUS }}"
+          mkdir -p "$TEMPLATES_DIR"
+          wget -q https://github.com/godotengine/godot-builds/releases/download/${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}/Godot_v${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}_export_templates.tpz
+          unzip -q Godot_v${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}_export_templates.tpz
+          mv templates/* "$TEMPLATES_DIR/"
+
+      - name: Confirm Godot Version
+        run: godot --version
+
+      - name: Confirm Export Templates Exist
+        run: |
+          TEMPLATES_DIR="$HOME/Library/Application Support/Godot/export_templates/${{ env.GODOT_VERSION }}.${{ env.GODOT_STATUS }}"
+          echo "=== Template directory ==="
+          ls -la "$TEMPLATES_DIR" || echo "TEMPLATES DIRECTORY NOT FOUND"
+
+      - name: Print export_presets.cfg
+        run: |
+          echo "=== export_presets.cfg ==="
+          cat export_presets.cfg || echo "FILE NOT FOUND IN REPO ROOT"
+
+      - name: Confirm Icon Files Exist
+        run: |
+          echo "=== Checking icon paths ==="
+          for f in \
+            "assets/icons/icon_120x120.png" \
+            "assets/icons/icon_180x180.png" \
+            "assets/icons/icon_76x76.png" \
+            "assets/icons/icon_152x152.png" \
+            "assets/icons/icon_167x167.png" \
+            "assets/icons/icon_1024x1024.png"
+          do
+            if [ -f "$f" ]; then
+              echo "OK: $f"
+            else
+              echo "MISSING: $f"
+            fi
+          done
+
+      - name: Attempt Export and Capture Full Output
+        run: |
+          mkdir -p ios
+          godot --headless --verbose \
+            --export-release "${{ env.IOS_EXPORT_PRESET }}" \
+            "ios/${{ env.IOS_XCODE_PROJECT_NAME }}.xcodeproj" 2>&1 || true
+          # '|| true' prevents the step from stopping so we see ALL output
+
+      - name: Show Export Output
+        run: |
+          echo "=== ios/ directory contents after export attempt ==="
+          ls -la ios/ || echo "ios/ directory is empty or missing"
