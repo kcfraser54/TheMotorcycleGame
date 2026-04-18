@@ -1,0 +1,44 @@
+[gd_scene format=3 uid="uid://qdhg0u8b78sp"]
+
+[ext_resource type="Texture2D" uid="uid://c6bujqyo63m1h" path="res://assets/sprites/synthcity/sky.png" id="1_cbsqf"]
+[ext_resource type="Texture2D" uid="uid://cwkq4dkmka3k2" path="res://assets/sprites/synthcity/far-buildings.png" id="2_wisxt"]
+[ext_resource type="Texture2D" uid="uid://cshjr1tvfcoyc" path="res://assets/sprites/synthcity/near-buildings.png" id="3_wax1t"]
+[ext_resource type="Texture2D" uid="uid://dq7h7m15pul6p" path="res://assets/sprites/synthcity/sun.png" id="4_1tmhi"]
+
+[node name="Background" type="Node2D" unique_id=1781701859]
+
+[node name="Sky" type="Sprite2D" parent="." unique_id=310627069]
+z_index = -1000
+position = Vector2(-286, 0.24998473)
+scale = Vector2(7.178125, 2.64375)
+texture = ExtResource("1_cbsqf")
+
+[node name="Sky2" type="Sprite2D" parent="." unique_id=1122637386]
+z_index = -1000
+position = Vector2(285, 0)
+scale = Vector2(7.178125, 2.6458333)
+texture = ExtResource("1_cbsqf")
+
+[node name="FarBuildings2" type="Sprite2D" parent="." unique_id=1876591978]
+z_index = -995
+position = Vector2(287, -53)
+scale = Vector2(3.993055, 2.6020834)
+texture = ExtResource("2_wisxt")
+
+[node name="FarBuildings3" type="Sprite2D" parent="." unique_id=1573535025]
+z_index = -995
+position = Vector2(-286, -53)
+scale = Vector2(3.993055, 2.6020834)
+texture = ExtResource("2_wisxt")
+
+[node name="NearBuildings" type="Sprite2D" parent="." unique_id=921714482]
+z_index = -995
+position = Vector2(-1.9999981, 13.999998)
+scale = Vector2(2.8696873, 2.5822918)
+texture = ExtResource("3_wax1t")
+
+[node name="Sun" type="Sprite2D" parent="." unique_id=1129946536]
+z_index = -999
+position = Vector2(275, -95)
+scale = Vector2(2.3111112, 2.2125)
+texture = ExtResource("4_1tmhi")
