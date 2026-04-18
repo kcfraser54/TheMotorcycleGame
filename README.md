@@ -29,11 +29,7 @@ launch storyboard, plugins, etc.).
 |------------------------------------------|----------------------|------------------------------------------------------------------------|
 | `.github/workflows/pr-ci.yml`            | PRs to `main`        | GUT tests + export `game.pck` + unsigned `xcodebuild` of `ios/` shell  |
 | `.github/workflows/bootstrap-ios-shell.yml` | `workflow_dispatch` | Generates the iOS Xcode shell from Godot's iOS exporter, as an artifact |
-| `.github/workflows/deploy-testflight.yml`| Push to `main`       | (Pending rewrite to the new architecture)                              |
-
-> **Note:** `deploy-testflight.yml` still uses the old "Godot iOS export"
-> flow as of this change. It will be migrated to the PCK + `xcodebuild`
-> architecture in a follow-up.
+| `.github/workflows/deploy-testflight.yml`| Push to `main`       | Export `game.pck` + signed `xcodebuild archive` of `ios/` shell + TestFlight upload |
 
 ## Bootstrapping / regenerating the iOS Xcode shell
 
@@ -55,13 +51,17 @@ committed (see `.gitignore`).
 
 ## Required secrets
 
-Only the TestFlight deploy workflow currently needs secrets. PR CI runs
-fully unsigned and does not read any secrets.
+PR CI runs fully unsigned and reads no secrets. The TestFlight deploy
+workflow needs:
 
 - `APPLE_CERTIFICATE_BASE64`, `APPLE_CERTIFICATE_PASSWORD`,
   `APPLE_PROVISIONING_PROFILE`, `APPLE_TEAM_ID`,
   `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_API_ISSUER_ID`,
   `APP_STORE_CONNECT_API_KEY_BASE64`.
+
+`APPLE_TEAM_ID` is now consumed by `xcodebuild` (`DEVELOPMENT_TEAM=...`)
+and the `ExportOptions.plist` only — it is **no longer** injected into
+`export_presets.cfg`.
 
 ## Notes
 
