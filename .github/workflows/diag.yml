@@ -70,6 +70,11 @@ jobs:
             godot --headless --verbose \
               --export-release "${{ env.IOS_EXPORT_PRESET }}" \
               "ios/${{ env.IOS_XCODE_PROJECT_NAME }}.xcodeproj" 2>&1 | tee export_log.txt || true
+
+      - name: Print Full Export Log
+        run: |
+            echo "=== FULL EXPORT LOG ==="
+            cat export_log.txt
   
       - name: Search Log for Configuration Errors
         run: |
