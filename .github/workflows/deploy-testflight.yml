@@ -1,9 +1,17 @@
 name: Deploy to TestFlight
 
-# On push to `main`, exports the Godot iOS Xcode project, signs it with a
-# distribution certificate + provisioning profile, archives it, exports a
-# signed .ipa, and uploads it to TestFlight using the App Store Connect
-# API.
+# On push to `main`:
+#   1. `export-pck` (Linux, fast): runs Godot headless and produces a content-only
+#      `game.pck` via `--export-pack`. No iOS exporter, no Team-ID injection,
+#      no signing fields needed.
+#   2. `deploy` (macOS): drops the PCK into the committed iOS Xcode shell
+#      under `ios/`, signs with a distribution certificate + provisioning
+#      profile, archives via `xcodebuild`, exports a signed .ipa, and
+#      uploads to TestFlight via the App Store Connect API.
+#
+# The Xcode shell at `ios/TheMotorcycleGame.xcodeproj` is generated once by
+# the `bootstrap-ios-shell.yml` workflow and committed. Re-run that workflow
+# whenever Godot version or any iOS export option changes.
 #
 # Required repository secrets
 # ---------------------------------------------------------------------------
@@ -14,6 +22,8 @@ name: Deploy to TestFlight
 #
 # Project identity:
 #   APPLE_TEAM_ID                     your 10-char Apple Developer team ID
+#                                     (used by xcodebuild only -- no longer
+#                                     injected into export_presets.cfg)
 #
 # App Store Connect API key (for TestFlight upload):
 #   APP_STORE_CONNECT_API_KEY_ID      e.g. ABCDE12345
@@ -23,9 +33,6 @@ name: Deploy to TestFlight
 # The temp-keychain password is generated at runtime, and the provisioning
 # profile's Name, UUID, and bundle identifier are extracted from the
 # profile itself -- so no additional secrets are needed.
-#
-# NOTE: `export_presets.cfg` must be committed to the repo for Godot's iOS
-# export to work in CI.
 
 on:
   push:
@@ -43,12 +50,87 @@ env:
   GODOT_VERSION: "4.6"
   GODOT_STATUS: "stable"
   IOS_EXPORT_PRESET: "iOS"
-  IOS_BUILD_DIR: "build/ios"
   IOS_XCODE_PROJECT_NAME: "TheMotorcycleGame"
+  PCK_ARTIFACT_NAME: "game-pck"
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # Export the game.pck on Linux (no iOS toolchain involvement). PCK export
+  # is content-only, so it does not exercise the iOS exporter's signing /
+  # Team-ID validation.
+  # ---------------------------------------------------------------------------
+  export-pck:
+    name: Export game.pck (headless)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Cache Godot binary
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/bin/godot
+          key: godot-linux-${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}
+
+      - name: Install Godot ${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }} (headless)
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          VERSION="${GODOT_VERSION}-${GODOT_STATUS}"
+          ZIP="Godot_v${VERSION}_linux.x86_64.zip"
+          URL="https://github.com/godotengine/godot/releases/download/${VERSION}/${ZIP}"
+          curl -fL --retry 3 -o /tmp/godot.zip "$URL"
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          sudo mv /tmp/godot/Godot_v${VERSION}_linux.x86_64 /usr/local/bin/godot
+          sudo chmod +x /usr/local/bin/godot
+
+      - name: Verify Godot install
+        run: godot --version
+
+      - name: Ensure export_presets.cfg exists
+        run: |
+          if [ ! -f "export_presets.cfg" ]; then
+            echo "::error::export_presets.cfg is missing. Commit it to the repo"
+            echo "::error::(you may need to remove it from .gitignore or run 'git add -f export_presets.cfg')"
+            echo "::error::so CI can export the game.pck."
+            exit 1
+          fi
+
+      - name: Import project resources
+        run: godot --headless --import --quit || true
+
+      - name: Export game.pck
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          godot --headless --verbose \
+            --export-pack "${IOS_EXPORT_PRESET}" \
+            "build/game.pck"
+          if [ ! -s "build/game.pck" ]; then
+            echo "::error::game.pck was not produced or is empty."
+            exit 1
+          fi
+          ls -la build/
+
+      - name: Upload game.pck artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PCK_ARTIFACT_NAME }}
+          path: build/game.pck
+          if-no-files-found: error
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Build, sign, archive, export, and upload to TestFlight on macOS using
+  # the committed iOS Xcode shell + the freshly-built PCK.
+  # ---------------------------------------------------------------------------
   deploy:
     name: Build & upload to TestFlight
+    needs: export-pck
     runs-on: macos-14
     timeout-minutes: 60
     steps:
@@ -57,65 +139,46 @@ jobs:
         with:
           lfs: true
 
+      - name: Verify committed iOS Xcode shell is present
+        run: |
+          set -euo pipefail
+          if [ ! -d "ios/${IOS_XCODE_PROJECT_NAME}.xcodeproj" ]; then
+            echo "::error::No committed iOS Xcode shell found at ios/${IOS_XCODE_PROJECT_NAME}.xcodeproj."
+            echo "::error::Run the 'Bootstrap iOS Xcode shell' workflow, download the 'ios-shell' artifact,"
+            echo "::error::and commit its contents under ios/ before deploying. See README.md."
+            exit 1
+          fi
+
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app
 
       # -----------------------------------------------------------------------
-      # Godot + iOS export templates
+      # Drop the freshly-exported PCK into the committed Xcode shell.
       # -----------------------------------------------------------------------
-      - name: Cache Godot + export templates
-        id: godot-cache
-        uses: actions/cache@v4
+      - name: Download game.pck artifact
+        uses: actions/download-artifact@v4
         with:
-          path: |
-            /usr/local/bin/godot
-            ~/Library/Application Support/Godot/export_templates
-          key: godot-macos-${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}
+          name: ${{ env.PCK_ARTIFACT_NAME }}
+          path: build/
 
-      - name: Install Godot ${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }} + iOS templates
-        if: steps.godot-cache.outputs.cache-hit != 'true'
+      - name: Inject game.pck into iOS shell
         run: |
           set -euo pipefail
-          VERSION="${GODOT_VERSION}-${GODOT_STATUS}"
-
-          curl -fL --retry 3 \
-            -o /tmp/godot.zip \
-            "https://github.com/godotengine/godot/releases/download/${VERSION}/Godot_v${VERSION}_macos.universal.zip"
-          unzip -q /tmp/godot.zip -d /tmp/godot
-          sudo mv /tmp/godot/Godot.app /Applications/Godot.app
-          sudo ln -sf /Applications/Godot.app/Contents/MacOS/Godot /usr/local/bin/godot
-
-          curl -fL --retry 3 \
-            -o /tmp/godot_templates.tpz \
-            "https://github.com/godotengine/godot/releases/download/${VERSION}/Godot_v${VERSION}_export_templates.tpz"
-          TEMPLATES_DIR="$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION}.${GODOT_STATUS}"
-          mkdir -p "$TEMPLATES_DIR"
-          unzip -q /tmp/godot_templates.tpz -d /tmp/godot_templates
-          mv /tmp/godot_templates/templates/* "$TEMPLATES_DIR/"
-
-      - name: Verify Godot install
-        run: godot --version
-
-      - name: Verify iOS export templates are present
-        run: |
-          set -euo pipefail
-          TEMPLATES_DIR="$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION}.${GODOT_STATUS}"
-          if [ ! -d "$TEMPLATES_DIR" ]; then
-            echo "::error::iOS export templates directory not found at: $TEMPLATES_DIR"
-            echo "::error::Check that GODOT_VERSION ($GODOT_VERSION) and GODOT_STATUS ($GODOT_STATUS) match a published Godot release."
+          if [ ! -s "build/game.pck" ]; then
+            echo "::error::Downloaded game.pck is missing or empty."
             exit 1
           fi
-          # Godot 4.x ships iOS as ios.zip inside the export templates archive.
-          if [ ! -f "$TEMPLATES_DIR/ios.zip" ]; then
-            echo "::error::ios.zip not found in $TEMPLATES_DIR"
-            echo "::error::Files present: $(ls "$TEMPLATES_DIR")"
-            echo "::error::Check that GODOT_VERSION ($GODOT_VERSION) and GODOT_STATUS ($GODOT_STATUS) match a published Godot release that includes iOS templates."
-            exit 1
-          fi
-          echo "iOS template (ios.zip) found in $TEMPLATES_DIR"
+          # The Godot-generated Xcode shell expects the PCK at
+          # ios/<ProjectName>/<ProjectName>.pck (it is added to the bundle as
+          # a resource of the same name as the project).
+          DEST_DIR="ios/${IOS_XCODE_PROJECT_NAME}"
+          mkdir -p "$DEST_DIR"
+          cp build/game.pck "$DEST_DIR/${IOS_XCODE_PROJECT_NAME}.pck"
+          ls -la "$DEST_DIR/${IOS_XCODE_PROJECT_NAME}.pck"
 
       # -----------------------------------------------------------------------
-      # Code signing setup: import cert + provisioning profile
+      # Code signing setup: import cert + provisioning profile.
+      # (Unchanged from the previous deploy workflow.)
       # -----------------------------------------------------------------------
       - name: Import signing certificate & provisioning profile
         env:
@@ -181,20 +244,10 @@ jobs:
           echo "Bundle identifier: $BUNDLE_ID"
 
       # -----------------------------------------------------------------------
-      # Export Godot iOS Xcode project
+      # Archive + export signed IPA against the committed Xcode shell.
       # -----------------------------------------------------------------------
-      - name: Import project resources
-        run: godot --headless --import --quit || true
-
-      - name: Ensure export_presets.cfg exists
-        run: |
-          if [ ! -f "export_presets.cfg" ]; then
-            echo "::error::export_presets.cfg is missing. Commit it to the repo"
-            echo "::error::(you may need to remove it from .gitignore or run 'git add -f export_presets.cfg')"
-            exit 1
-          fi
-
-      - name: Inject Apple Team ID into export_presets.cfg
+      - name: Archive (xcodebuild)
+        working-directory: ios
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
@@ -203,61 +256,6 @@ jobs:
             echo "::error::APPLE_TEAM_ID secret is not set. Add it in Settings -> Secrets and variables -> Actions."
             exit 1
           fi
-          if ! [[ "${APPLE_TEAM_ID}" =~ ^[A-Z0-9]{10}$ ]]; then
-            echo "::error::APPLE_TEAM_ID must be a 10-character alphanumeric Apple Developer Team ID. Got a value of length ${#APPLE_TEAM_ID}."
-            exit 1
-          fi
-          sed -i '' \
-            "s|application/app_store_team_id=\"[^\"]*\"|application/app_store_team_id=\"${APPLE_TEAM_ID}\"|" \
-            export_presets.cfg
-          # Verify the (non-empty) value is actually present.
-          if ! grep -q "^application/app_store_team_id=\"${APPLE_TEAM_ID}\"$" export_presets.cfg; then
-            echo "::error::Failed to inject APPLE_TEAM_ID into export_presets.cfg. The line 'application/app_store_team_id=\"...\"' may be missing or formatted unexpectedly."
-            exit 1
-          fi
-          echo "Team ID injected into export_presets.cfg"
-
-      - name: Export iOS Xcode project (release)
-        run: |
-          set -euo pipefail
-          mkdir -p "${IOS_BUILD_DIR}"
-          # Capture output so we can surface actionable errors as annotations.
-          GODOT_LOG="$RUNNER_TEMP/godot_export.log"
-          set +e
-          # --verbose is required for Godot to print the *specific* per-field
-          # configuration errors from the iOS exporter; without it, only the
-          # generic "Cannot export project ... due to configuration errors"
-          # line is emitted and the real cause is hidden.
-          godot --headless --verbose \
-            --export-release "${IOS_EXPORT_PRESET}" \
-            "${IOS_BUILD_DIR}/${IOS_XCODE_PROJECT_NAME}.xcodeproj" \
-            2>&1 | tee "$GODOT_LOG"
-          GODOT_EXIT=${PIPESTATUS[0]}
-          set -e
-          if [ $GODOT_EXIT -ne 0 ]; then
-            echo ""
-            echo "--- Godot export failed. Surfacing configuration errors as annotations ---"
-            grep -E "^(ERROR|WARN|error|warn)" "$GODOT_LOG" | while IFS= read -r line; do
-              echo "::error::$line"
-            done
-            echo ""
-            echo "::error::Godot export exited with code $GODOT_EXIT. See log lines above for the specific configuration errors."
-            echo "::notice::Common causes:"
-            echo "::notice::  1. Export templates not installed or wrong version (GODOT_VERSION=$GODOT_VERSION GODOT_STATUS=$GODOT_STATUS)"
-            echo "::notice::  2. application/export_project_only must be 'true' in export_presets.cfg so Godot only generates the Xcode project (signing is handled by xcodebuild)"
-            echo "::notice::  3. application/bundle_identifier must be set in export_presets.cfg"
-            exit $GODOT_EXIT
-          fi
-
-      # -----------------------------------------------------------------------
-      # Archive + export signed IPA
-      # -----------------------------------------------------------------------
-      - name: Archive (xcodebuild)
-        working-directory: ${{ env.IOS_BUILD_DIR }}
-        env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          set -euo pipefail
           xcodebuild \
             -project "${IOS_XCODE_PROJECT_NAME}.xcodeproj" \
             -scheme "${IOS_XCODE_PROJECT_NAME}" \

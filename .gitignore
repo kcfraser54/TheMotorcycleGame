@@ -10,6 +10,15 @@
 *.x86_64
 *.pck
 
+# Build outputs from CI (Godot --export-pack writes here)
+/build/
+
+# Xcode build outputs inside the committed iOS shell
+/ios/build/
+/ios/DerivedData/
+# The runtime PCK is regenerated on every CI run; never commit it.
+/ios/TheMotorcycleGame/TheMotorcycleGame.pck
+
 # Godot import backups
 *.import.bak
 
