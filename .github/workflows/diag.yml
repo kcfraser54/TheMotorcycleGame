@@ -36,6 +36,20 @@ jobs:
 
           mv templates/* "$TEMPLATES_DIR/"
 
+      - name: Inspect iOS Templates
+        run: |
+          TEMPLATES_DIR="$HOME/Library/Application Support/Godot/export_templates/4.6.2.stable"
+          
+          echo "=== All files in templates dir ==="
+          ls -la "$TEMPLATES_DIR"
+          
+          echo "=== Contents of ios.zip ==="
+          unzip -l "$TEMPLATES_DIR/ios.zip"
+          
+          echo "=== Godot source - what iOS export expects ==="
+          # Check if there's a version.txt
+          cat "$TEMPLATES_DIR/version.txt" || echo "No version.txt found"
+
       - name: Confirm Godot Version
         run: godot --version
 
