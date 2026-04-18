@@ -64,16 +64,33 @@ jobs:
               echo "MISSING: $f"
             fi
           done
-
       - name: Attempt Export and Capture Full Output
         run: |
-          mkdir -p ios
-          godot --headless --verbose \
-            --export-release "${{ env.IOS_EXPORT_PRESET }}" \
-            "ios/${{ env.IOS_XCODE_PROJECT_NAME }}.xcodeproj" 2>&1 || true
-          # '|| true' prevents the step from stopping so we see ALL output
-
-      - name: Show Export Output
+            mkdir -p ios
+            godot --headless --verbose \
+              --export-release "${{ env.IOS_EXPORT_PRESET }}" \
+              "ios/${{ env.IOS_XCODE_PROJECT_NAME }}.xcodeproj" 2>&1 | tee export_log.txt || true
+  
+      - name: Search Log for Configuration Errors
         run: |
-          echo "=== ios/ directory contents after export attempt ==="
-          ls -la ios/ || echo "ios/ directory is empty or missing"
+          echo "=== All ERROR lines ==="
+          grep -i "error" export_log.txt || echo "No error lines found"
+  
+          echo "=== All WARN lines ==="
+          grep -i "warn" export_log.txt || echo "No warn lines found"
+  
+          echo "=== Preset config check ==="
+          grep -i "team\|signing\|provision\|bundle\|identity\|certificate" export_log.txt || echo "No signing-related lines found"
+  
+      - name: Print export_presets.cfg as Godot sees it
+        run: |
+          echo "=== export_presets.cfg ==="
+          cat export_presets.cfg
+  
+      - name: Check Godot editor logs
+        run: |
+          echo "=== Godot editor logs ==="
+          LOG_DIR="$HOME/Library/Application Support/Godot/logs"
+          ls -la "$LOG_DIR" || echo "No log directory found"
+          find "$LOG_DIR" -name "*.log" -exec cat {} \; 2>/dev/null || echo "No logs found"
+      
