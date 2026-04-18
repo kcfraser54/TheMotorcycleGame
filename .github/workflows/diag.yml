@@ -29,9 +29,17 @@ jobs:
         run: |
           TEMPLATES_DIR="$HOME/Library/Application Support/Godot/export_templates/${{ env.GODOT_VERSION }}.${{ env.GODOT_STATUS }}"
           mkdir -p "$TEMPLATES_DIR"
+
           wget -q https://github.com/godotengine/godot-builds/releases/download/${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}/Godot_v${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}_export_templates.tpz
+
           unzip -q Godot_v${{ env.GODOT_VERSION }}-${{ env.GODOT_STATUS }}_export_templates.tpz
+
           mv templates/* "$TEMPLATES_DIR/"
+
+          # Unzip the iOS templates specifically
+          cd "$TEMPLATES_DIR"
+          unzip -q ios.zip
+          rm ios.zip
 
       - name: Confirm Godot Version
         run: godot --version
