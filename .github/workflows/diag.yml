@@ -134,6 +134,11 @@ jobs:
           ls -la "$LOG_DIR" || echo "No log directory found"
           find "$LOG_DIR" -name "*.log" -exec cat {} \; 2>/dev/null || echo "No logs found"
 
+      - name: Check project settings for iOS requirements
+        run: |
+          echo "=== project.godot texture compression settings ==="
+          grep -i "etc2\|astc\|vram\|compress" project.godot || echo "No compression settings found - this is likely the problem"
+
       - name: Print export_presets.cfg
         run: |
           echo "=== export_presets.cfg ==="
@@ -141,4 +146,6 @@ jobs:
           
           echo "=== Checking for hidden characters or encoding issues ==="
           cat -A export_presets.cfg | grep -E "team_id|provisioning|code_sign|export_path"
+
+          
       
