@@ -105,13 +105,14 @@ jobs:
             echo "::error::Check that GODOT_VERSION ($GODOT_VERSION) and GODOT_STATUS ($GODOT_STATUS) match a published Godot release."
             exit 1
           fi
-          if ! ls "$TEMPLATES_DIR"/ios* "$TEMPLATES_DIR"/iphone* 2>/dev/null | grep -q .; then
-            echo "::error::No iOS template files found in $TEMPLATES_DIR"
+          # Godot 4.x ships iOS as ios.zip inside the export templates archive.
+          if [ ! -f "$TEMPLATES_DIR/ios.zip" ]; then
+            echo "::error::ios.zip not found in $TEMPLATES_DIR"
             echo "::error::Files present: $(ls "$TEMPLATES_DIR")"
+            echo "::error::Check that GODOT_VERSION ($GODOT_VERSION) and GODOT_STATUS ($GODOT_STATUS) match a published Godot release that includes iOS templates."
             exit 1
           fi
-          echo "iOS templates found in $TEMPLATES_DIR:"
-          ls "$TEMPLATES_DIR"/ios* "$TEMPLATES_DIR"/iphone* 2>/dev/null || true
+          echo "iOS template (ios.zip) found in $TEMPLATES_DIR"
 
       # -----------------------------------------------------------------------
       # Code signing setup: import cert + provisioning profile
