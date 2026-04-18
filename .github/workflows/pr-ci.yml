@@ -172,23 +172,28 @@ jobs:
             exit 1
           fi
 
-      - name: Inject placeholder Team ID into export_presets.cfg
+      - name: Inject Apple Team ID into export_presets.cfg
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
-          # Godot's iOS exporter rejects the preset with "App Store Team ID not
-          # specified" if application/app_store_team_id is empty. PR CI does an
-          # unsigned, build-only verification, so we substitute a syntactically
-          # valid placeholder (Apple Team IDs are 10-char uppercase alphanumeric).
-          # The real Team ID is injected from a secret in the deploy workflow.
-          PLACEHOLDER_TEAM_ID="AAAAAAAAAA"
-          sed -i '' \
-            "s|application/app_store_team_id=\"[^\"]*\"|application/app_store_team_id=\"${PLACEHOLDER_TEAM_ID}\"|" \
-            export_presets.cfg
-          grep -q "application/app_store_team_id=\"${PLACEHOLDER_TEAM_ID}\"" export_presets.cfg || {
-            echo "::error::Failed to inject placeholder Team ID into export_presets.cfg. Check the file format."
+          if [ -z "${APPLE_TEAM_ID}" ]; then
+            echo "::error::APPLE_TEAM_ID secret is not set. Add it in Settings -> Secrets and variables -> Actions."
             exit 1
-          }
-          echo "Placeholder Team ID injected into export_presets.cfg"
+          fi
+          if ! [[ "${APPLE_TEAM_ID}" =~ ^[A-Z0-9]{10}$ ]]; then
+            echo "::error::APPLE_TEAM_ID must be a 10-character alphanumeric Apple Developer Team ID. Got a value of length ${#APPLE_TEAM_ID}."
+            exit 1
+          fi
+          sed -i '' \
+            "s|application/app_store_team_id=\"[^\"]*\"|application/app_store_team_id=\"${APPLE_TEAM_ID}\"|" \
+            export_presets.cfg
+          # Verify the (non-empty) value is actually present.
+          if ! grep -q "^application/app_store_team_id=\"${APPLE_TEAM_ID}\"$" export_presets.cfg; then
+            echo "::error::Failed to inject APPLE_TEAM_ID into export_presets.cfg. The line 'application/app_store_team_id=\"...\"' may be missing or formatted unexpectedly."
+            exit 1
+          fi
+          echo "Team ID injected into export_presets.cfg"
 
       - name: Snapshot export_presets.cfg (post-injection) for diagnostics
         run: |
