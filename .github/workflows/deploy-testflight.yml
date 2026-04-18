@@ -168,6 +168,16 @@ jobs:
       - name: Import project resources
         run: godot --headless --import --quit || true
 
+      - name: Inject Apple Team ID into export_presets.cfg
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          sed -i '' \
+            "s|application/app_store_team_id=\"[^\"]*\"|application/app_store_team_id=\"${APPLE_TEAM_ID}\"|" \
+            export_presets.cfg
+          echo "Team ID injected into export_presets.cfg"
+
       - name: Ensure export_presets.cfg exists
         run: |
           if [ ! -f "export_presets.cfg" ]; then
