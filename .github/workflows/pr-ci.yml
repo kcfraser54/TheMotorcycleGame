@@ -142,6 +142,24 @@ jobs:
       - name: Verify Godot install
         run: godot --version
 
+      - name: Verify iOS export templates are present
+        run: |
+          set -euo pipefail
+          TEMPLATES_DIR="$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION}.${GODOT_STATUS}"
+          if [ ! -d "$TEMPLATES_DIR" ]; then
+            echo "::error::iOS export templates directory not found at: $TEMPLATES_DIR"
+            echo "::error::Check that GODOT_VERSION ($GODOT_VERSION) and GODOT_STATUS ($GODOT_STATUS) match a published Godot release."
+            exit 1
+          fi
+          # Godot 4.x ships iOS as ios.zip inside the export templates archive.
+          if [ ! -f "$TEMPLATES_DIR/ios.zip" ]; then
+            echo "::error::ios.zip not found in $TEMPLATES_DIR"
+            echo "::error::Files present: $(ls "$TEMPLATES_DIR")"
+            echo "::error::Check that GODOT_VERSION ($GODOT_VERSION) and GODOT_STATUS ($GODOT_STATUS) match a published Godot release that includes iOS templates."
+            exit 1
+          fi
+          echo "iOS template (ios.zip) found in $TEMPLATES_DIR"
+
       - name: Import project resources
         run: godot --headless --import --quit || true
 
@@ -154,13 +172,79 @@ jobs:
             exit 1
           fi
 
+      - name: Inject placeholder Team ID into export_presets.cfg
+        run: |
+          set -euo pipefail
+          # Godot's iOS exporter rejects the preset with "App Store Team ID not
+          # specified" if application/app_store_team_id is empty. PR CI does an
+          # unsigned, build-only verification, so we substitute a syntactically
+          # valid placeholder (Apple Team IDs are 10-char uppercase alphanumeric).
+          # The real Team ID is injected from a secret in the deploy workflow.
+          PLACEHOLDER_TEAM_ID="AAAAAAAAAA"
+          sed -i '' \
+            "s|application/app_store_team_id=\"[^\"]*\"|application/app_store_team_id=\"${PLACEHOLDER_TEAM_ID}\"|" \
+            export_presets.cfg
+          grep -q "application/app_store_team_id=\"${PLACEHOLDER_TEAM_ID}\"" export_presets.cfg || {
+            echo "::error::Failed to inject placeholder Team ID into export_presets.cfg. Check the file format."
+            exit 1
+          }
+          echo "Placeholder Team ID injected into export_presets.cfg"
+
+      - name: Snapshot export_presets.cfg (post-injection) for diagnostics
+        run: |
+          echo "--- export_presets.cfg (as seen by Godot exporter) ---"
+          cat export_presets.cfg
+          echo "--- end export_presets.cfg ---"
+
       - name: Export iOS Xcode project (debug, unsigned)
         run: |
           set -euo pipefail
           mkdir -p "${IOS_BUILD_DIR}"
-          godot --headless \
-            --export-debug "${IOS_EXPORT_PRESET}" \
-            "${IOS_BUILD_DIR}/${IOS_XCODE_PROJECT_NAME}.xcodeproj"
+          # Capture output so we can surface actionable errors as annotations.
+          GODOT_LOG="$RUNNER_TEMP/godot_export.log"
+          set +e
+          godot --headless --verbose \
+            --export-release "${IOS_EXPORT_PRESET}" \
+            "${IOS_BUILD_DIR}/${IOS_XCODE_PROJECT_NAME}.xcodeproj" \
+            2>&1 | tee "$GODOT_LOG"
+          GODOT_EXIT=${PIPESTATUS[0]}
+          set -e
+          if [ $GODOT_EXIT -ne 0 ]; then
+            echo ""
+            echo "--- Godot export failed. Surfacing configuration errors as annotations ---"
+            # Godot prints the configuration error reasons as plain (non-"ERROR:"-prefixed)
+            # lines between the "configuration errors:" header and the next "at:" line.
+            # Extract that block so the actual reasons (e.g. "App Store Team ID not specified.")
+            # show up as GitHub annotations, not just the generic "Cannot export project" line.
+            awk '
+              /Cannot export project with preset .* due to configuration errors:/ { capture=1; next }
+              capture && /^[[:space:]]*at:/ { capture=0 }
+              capture && NF { print }
+            ' "$GODOT_LOG" | while IFS= read -r line; do
+              # Strip leading whitespace for cleaner annotations.
+              clean="$(echo "$line" | sed -E 's/^[[:space:]]+//')"
+              [ -n "$clean" ] && echo "::error::Config error: $clean"
+            done
+            # Also surface any ERROR/WARN-prefixed lines (covers non-config failures
+            # like missing export templates).
+            grep -E "^(ERROR|WARN|error|warn)" "$GODOT_LOG" | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            # Print a tail of the raw log to the workflow output for full context
+            # in case the parsers above missed something.
+            echo ""
+            echo "--- Last 80 lines of raw Godot log (for reference) ---"
+            tail -n 80 "$GODOT_LOG"
+            echo "--- end raw Godot log ---"
+            echo ""
+            echo "::error::Godot export exited with code $GODOT_EXIT. See log lines above for the specific configuration errors."
+            echo "::notice::Common causes:"
+            echo "::notice::  1. Export templates not installed or wrong version (GODOT_VERSION=$GODOT_VERSION GODOT_STATUS=$GODOT_STATUS)"
+            echo "::notice::  2. application/export_project_only must be 'true' in export_presets.cfg so Godot only generates the Xcode project (signing is handled by xcodebuild)"
+            echo "::notice::  3. application/bundle_identifier must be set in export_presets.cfg"
+            echo "::notice::  4. If Godot reports an empty configuration-errors block, an iOS export option may be silently failing validation (e.g. missing icon files, invalid bundle identifier, or required code-signing field). Check the export_presets.cfg snapshot printed in the previous step."
+            exit $GODOT_EXIT
+          fi
 
       - name: Build iOS app (unsigned, build-only verification)
         working-directory: ${{ env.IOS_BUILD_DIR }}
