@@ -36,11 +36,6 @@ jobs:
 
           mv templates/* "$TEMPLATES_DIR/"
 
-          # Unzip the iOS templates specifically
-          cd "$TEMPLATES_DIR"
-          unzip -q ios.zip
-          rm ios.zip
-
       - name: Confirm Godot Version
         run: godot --version
 
