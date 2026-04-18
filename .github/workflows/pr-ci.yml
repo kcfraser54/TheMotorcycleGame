@@ -142,16 +142,25 @@ jobs:
       - name: Verify Godot install
         run: godot --version
 
-      - name: Import project resources
-        run: godot --headless --import --quit || true
-
-      - name: Inject placeholder Team ID into export_presets.cfg
+      - name: Verify iOS export templates are present
         run: |
           set -euo pipefail
-          sed -i '' \
-            "s|application/app_store_team_id=\"[^\"]*\"|application/app_store_team_id=\"PLACEHOLDER1\"|" \
-            export_presets.cfg
-          echo "Placeholder Team ID injected into export_presets.cfg"
+          TEMPLATES_DIR="$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION}.${GODOT_STATUS}"
+          if [ ! -d "$TEMPLATES_DIR" ]; then
+            echo "::error::iOS export templates directory not found at: $TEMPLATES_DIR"
+            echo "::error::Check that GODOT_VERSION ($GODOT_VERSION) and GODOT_STATUS ($GODOT_STATUS) match a published Godot release."
+            exit 1
+          fi
+          if ! ls "$TEMPLATES_DIR"/ios* "$TEMPLATES_DIR"/iphone* 2>/dev/null | grep -q .; then
+            echo "::error::No iOS template files found in $TEMPLATES_DIR"
+            echo "::error::Files present: $(ls "$TEMPLATES_DIR")"
+            exit 1
+          fi
+          echo "iOS templates found in $TEMPLATES_DIR:"
+          ls "$TEMPLATES_DIR"/ios* "$TEMPLATES_DIR"/iphone* 2>/dev/null || true
+
+      - name: Import project resources
+        run: godot --headless --import --quit || true
 
       - name: Ensure export_presets.cfg exists
         run: |
@@ -162,13 +171,45 @@ jobs:
             exit 1
           fi
 
+      - name: Inject placeholder Team ID into export_presets.cfg
+        run: |
+          set -euo pipefail
+          sed -i '' \
+            "s|application/app_store_team_id=\"[^\"]*\"|application/app_store_team_id=\"PLACEHOLDER1\"|" \
+            export_presets.cfg
+          grep -q 'application/app_store_team_id="PLACEHOLDER1"' export_presets.cfg || {
+            echo "::error::Failed to inject placeholder Team ID into export_presets.cfg. Check the file format."
+            exit 1
+          }
+          echo "Placeholder Team ID injected into export_presets.cfg"
+
       - name: Export iOS Xcode project (debug, unsigned)
         run: |
           set -euo pipefail
           mkdir -p "${IOS_BUILD_DIR}"
+          # Capture output so we can surface actionable errors as annotations.
+          GODOT_LOG="$RUNNER_TEMP/godot_export.log"
+          set +e
           godot --headless \
             --export-debug "${IOS_EXPORT_PRESET}" \
-            "${IOS_BUILD_DIR}/${IOS_XCODE_PROJECT_NAME}.xcodeproj"
+            "${IOS_BUILD_DIR}/${IOS_XCODE_PROJECT_NAME}.xcodeproj" \
+            2>&1 | tee "$GODOT_LOG"
+          GODOT_EXIT=${PIPESTATUS[0]}
+          set -e
+          if [ $GODOT_EXIT -ne 0 ]; then
+            echo ""
+            echo "--- Godot export failed. Surfacing configuration errors as annotations ---"
+            grep -E "^(ERROR|WARN|error|warn)" "$GODOT_LOG" | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            echo ""
+            echo "::error::Godot export exited with code $GODOT_EXIT. See log lines above for the specific configuration errors."
+            echo "::notice::Common causes:"
+            echo "::notice::  1. Export templates not installed or wrong version (GODOT_VERSION=$GODOT_VERSION GODOT_STATUS=$GODOT_STATUS)"
+            echo "::notice::  2. application/export_project_only must be 'true' in export_presets.cfg so Godot only generates the Xcode project (signing is handled by xcodebuild)"
+            echo "::notice::  3. application/bundle_identifier must be set in export_presets.cfg"
+            exit $GODOT_EXIT
+          fi
 
       - name: Build iOS app (unsigned, build-only verification)
         working-directory: ${{ env.IOS_BUILD_DIR }}
