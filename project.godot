@@ -11,9 +11,13 @@ config_version=5
 [application]
 
 config/name="TheMotorcycleGame"
-run/main_scene="uid://blmcnk64pkxq8"
+run/main_scene="uid://daevnrd062xl8"
 config/features=PackedStringArray("4.6", "Mobile")
 config/icon="res://icon.svg"
+
+[autoload]
+
+GameState="*res://scripts/autoloads/GameState.gd"
 
 [display]
 
