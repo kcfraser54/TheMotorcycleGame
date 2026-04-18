@@ -172,18 +172,6 @@ jobs:
             exit 1
           fi
 
-      - name: Inject placeholder Team ID into export_presets.cfg
-        run: |
-          set -euo pipefail
-          sed -i '' \
-            "s|application/app_store_team_id=\"[^\"]*\"|application/app_store_team_id=\"PLACEHOLDER1\"|" \
-            export_presets.cfg
-          grep -q 'application/app_store_team_id="PLACEHOLDER1"' export_presets.cfg || {
-            echo "::error::Failed to inject placeholder Team ID into export_presets.cfg. Check the file format."
-            exit 1
-          }
-          echo "Placeholder Team ID injected into export_presets.cfg"
-
       - name: Export iOS Xcode project (debug, unsigned)
         run: |
           set -euo pipefail
