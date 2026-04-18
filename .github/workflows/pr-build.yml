@@ -1,9 +1,12 @@
-name: PR Build Check
+name: PR Build Verification
 
 on:
   pull_request:
     branches:
       - main
+
+permissions:
+  contents: read
 
 env:
   GODOT_VERSION: "4.6.2"
