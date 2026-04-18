@@ -1,0 +1,25 @@
+name: PR Tests
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # No automated tests exist for the project yet. This workflow is
+      # scaffolded so that test runs are wired into PR CI as soon as tests
+      # are added (e.g. GUT for Godot). Add the test runner steps below
+      # and remove the placeholder when ready.
+      - name: Run tests (placeholder)
+        run: echo "No tests defined yet — add test runner steps here."
