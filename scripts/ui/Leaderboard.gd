@@ -92,15 +92,21 @@ func _build_row(rank: int, entry: Dictionary, highlight: bool) -> HBoxContainer:
 	return row
 
 
-func _build_separator() -> HSeparator:
-	var sep := HSeparator.new()
-	# Give the line a subtle neon tint so it reads as intentional.
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.2, 1, 0.95, 0.35)
-	style.content_margin_top = 1
-	style.content_margin_bottom = 1
-	sep.add_theme_stylebox_override("separator", style)
-	return sep
+## Subtle neon divider between rows. Uses a CenterContainer + ColorRect
+## instead of HSeparator because HSeparator's `separator` theme item is a
+## stylebox keyed via `content_margin_*` for height — a plain bg_color
+## stylebox barely renders. A ColorRect gives us a guaranteed-visible line.
+func _build_separator() -> CenterContainer:
+	var wrap := CenterContainer.new()
+	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var line := ColorRect.new()
+	line.color = Color(0.2, 1, 0.95, 0.35)
+	line.custom_minimum_size = Vector2(
+		RANK_COL_WIDTH + SCORE_COL_WIDTH + DATE_COL_WIDTH + ROW_SEPARATION * 2,
+		2.0
+	)
+	wrap.add_child(line)
+	return wrap
 
 
 ## Convert a stored ISO 8601 timestamp (e.g. "2026-04-18T19:45:02") into a

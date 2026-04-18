@@ -35,17 +35,25 @@ func _ready() -> void:
 
 ## Add a score. Returns the index it landed at in the top list,
 ## or -1 if it didn't qualify.
+##
+## Implementation: insertion-sort to capture the exact landing index without
+## relying on `find()` reference-equality (which would silently break if a
+## future change cloned/normalized entries before insert).
 func submit(score: int) -> int:
 	var entry := {
 		"score": score,
 		"date": Time.get_datetime_string_from_system(true),  # UTC, ISO 8601
 	}
-	_entries.append(entry)
-	# Sort descending by score; stable enough for our needs.
-	_entries.sort_custom(func(a, b): return int(a["score"]) > int(b["score"]))
+	var insert_at := _entries.size()
+	for i in _entries.size():
+		if score > int(_entries[i]["score"]):
+			insert_at = i
+			break
+	_entries.insert(insert_at, entry)
 	if _entries.size() > max_entries:
 		_entries.resize(max_entries)
-	last_submitted_index = _entries.find(entry)
+	# If the new entry got truncated off the end, it didn't qualify.
+	last_submitted_index = insert_at if insert_at < _entries.size() else -1
 	_save()
 	leaderboard_changed.emit()
 	return last_submitted_index
@@ -84,18 +92,30 @@ func _load() -> void:
 	for item: Variant in raw_scores:
 		if typeof(item) != TYPE_DICTIONARY:
 			continue
+		var score := int(item.get("score", 0))
+		# Defend against hand-edited / corrupt saves: a negative score would
+		# otherwise sort to the top and dominate the leaderboard forever.
+		if score < 0:
+			continue
 		_entries.append({
-			"score": int(item.get("score", 0)),
+			"score": score,
 			"date": String(item.get("date", "")),
 		})
+	# Re-sort defensively in case the saved file was out of order.
+	_entries.sort_custom(func(a, b): return int(a["score"]) > int(b["score"]))
 	if _entries.size() > max_entries:
 		_entries.resize(max_entries)
 
 
+## Atomic write: serialize to `<SAVE_PATH>.tmp`, flush, then rename over the
+## live file. If the process is killed mid-write, the live file is either
+## the previous good version or doesn't yet exist — never a truncated/corrupt
+## half-write that breaks _load() on next launch.
 func _save() -> void:
-	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	var tmp_path := SAVE_PATH + ".tmp"
+	var f := FileAccess.open(tmp_path, FileAccess.WRITE)
 	if f == null:
-		push_warning("LocalLeaderboard: could not open %s for writing." % SAVE_PATH)
+		push_warning("LocalLeaderboard: could not open %s for writing." % tmp_path)
 		return
 	var payload := {
 		"version": SCHEMA_VERSION,
@@ -103,3 +123,13 @@ func _save() -> void:
 	}
 	f.store_string(JSON.stringify(payload, "\t"))
 	f.close()
+
+	var dir := DirAccess.open("user://")
+	if dir == null:
+		push_warning("LocalLeaderboard: could not open user:// to finalize save.")
+		return
+	var tmp_name := tmp_path.get_file()
+	var final_name := SAVE_PATH.get_file()
+	var err := dir.rename(tmp_name, final_name)
+	if err != OK:
+		push_warning("LocalLeaderboard: atomic rename failed (err %d); save may be incomplete." % err)

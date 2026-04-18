@@ -11,7 +11,15 @@ class_name RoadConfig
 ## (the other is Obstacle). It's required so `@export var road_config: RoadConfig`
 ## can be typed in scenes; without it you'd have to use untyped Resource
 ## and lose Inspector validation.
+##
+## DEFAULTS: kept here as constants so any consumer (Road, Background, Obstacle)
+## that fails to receive a config can fall back to the SAME numbers without
+## three files quietly drifting out of sync.
 
-@export var road_top_y: float = 80.0
-@export var road_bottom_y: float = 300.0
-@export var scroll_speed: float = 900.0
+const DEFAULT_ROAD_TOP_Y := 80.0
+const DEFAULT_ROAD_BOTTOM_Y := 300.0
+const DEFAULT_SCROLL_SPEED := 900.0
+
+@export var road_top_y: float = DEFAULT_ROAD_TOP_Y
+@export var road_bottom_y: float = DEFAULT_ROAD_BOTTOM_Y
+@export var scroll_speed: float = DEFAULT_SCROLL_SPEED

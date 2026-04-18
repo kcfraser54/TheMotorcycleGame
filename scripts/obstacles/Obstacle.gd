@@ -34,7 +34,7 @@ func _refresh_bounds() -> void:
 
 
 func _physics_process(delta: float) -> void:
-	var s := road_config.scroll_speed if road_config else 900.0
+	var s := road_config.scroll_speed if road_config else RoadConfig.DEFAULT_SCROLL_SPEED
 	position.x -= s * delta
 	if position.x < _screen_left - despawn_buffer:
 		queue_free()

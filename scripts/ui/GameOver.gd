@@ -26,6 +26,17 @@ func _ready() -> void:
 	GameState.game_over.connect(_on_game_over)
 
 
+## Listen for the `pause` input action (Esc on desktop) and trigger RESTART
+## while the Game Over overlay is visible. Uses _input rather than
+## _unhandled_input so it works even if a Button currently has focus.
+func _input(event: InputEvent) -> void:
+	if not visible:
+		return
+	if event.is_action_pressed("pause"):
+		get_viewport().set_input_as_handled()
+		_on_restart_pressed()
+
+
 func _on_game_over(final_score: int) -> void:
 	final_score_label.text = "SCORE  %d" % final_score
 	high_score_label.text = "BEST   %d" % GameState.high_score

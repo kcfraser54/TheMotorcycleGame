@@ -14,6 +14,11 @@ extends Node2D
 @onready var far_pair: Array[Sprite2D] = [$FarBuildings, $FarBuildings2]
 @onready var near_pair: Array[Sprite2D] = [$NearBuildings, $NearBuildings2]
 
+# Cached viewport metrics — refreshed in _normalize_all() so the per-frame
+# scroll loop doesn't keep calling into get_viewport_rect().
+var _vp_width: float = 0.0
+var _vp_half: float = 0.0
+
 
 func _ready() -> void:
 	_normalize_all()
@@ -28,6 +33,8 @@ func _process(delta: float) -> void:
 
 # --- Sizing --------------------------------------------------------------
 func _normalize_all() -> void:
+	_vp_width = get_viewport_rect().size.x
+	_vp_half = _vp_width * 0.5
 	_normalize_pair(sky_pair)
 	_normalize_pair(far_pair)
 	_normalize_pair(near_pair)
@@ -39,9 +46,8 @@ func _normalize_pair(pair: Array[Sprite2D]) -> void:
 	# Each tile MUST be at least as wide as the viewport. If the texture is
 	# too small, scale it up so one tile can always cover the whole screen
 	# while the other is wrapping around.
-	var vp_w: float = get_viewport_rect().size.x
 	var tex_w: float = pair[0].texture.get_width()
-	var min_scale_x: float = vp_w / tex_w
+	var min_scale_x: float = _vp_width / tex_w
 	for s in pair:
 		if s.scale.x < min_scale_x:
 			s.scale.x = min_scale_x
@@ -72,10 +78,9 @@ func _scroll_pair(pair: Array[Sprite2D], speed: float, delta: float) -> void:
 	# viewport, teleport it to the right of its partner. Because each tile
 	# is >= viewport width, the partner always covers the full screen during
 	# the transition — no gaps, no pop-in.
-	var vp_half: float = get_viewport_rect().size.x * 0.5
 	for i in pair.size():
 		var s: Sprite2D = pair[i]
 		var right_edge: float = s.position.x + tile_w * 0.5
-		if right_edge <= -vp_half:
+		if right_edge <= -_vp_half:
 			var other: Sprite2D = pair[1 - i]
 			s.position.x = other.position.x + tile_w

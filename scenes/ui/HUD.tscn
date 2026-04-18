@@ -14,7 +14,7 @@ corner_radius_top_right = 6
 corner_radius_bottom_right = 6
 corner_radius_bottom_left = 6
 
-[node name="Hud" type="CanvasLayer"]
+[node name="HUD" type="CanvasLayer"]
 script = ExtResource("1_script")
 
 [node name="ScorePanel" type="PanelContainer" parent="."]

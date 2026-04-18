@@ -33,6 +33,12 @@ class SpeedLine:
 var _screen_left: float
 var _screen_right: float
 
+# Cached config values — refreshed on size_changed so that hot loops in
+# _animate_* don't pay for a per-frame null check + property dereference.
+var _scroll_speed_cached: float = RoadConfig.DEFAULT_SCROLL_SPEED
+var _road_top_cached: float = RoadConfig.DEFAULT_ROAD_TOP_Y
+var _road_bottom_cached: float = RoadConfig.DEFAULT_ROAD_BOTTOM_Y
+
 var _dashes: Array[ColorRect] = []
 var _speed_lines: Array[SpeedLine] = []
 
@@ -42,6 +48,7 @@ var _built: bool = false
 
 func _ready() -> void:
 	_refresh_screen_bounds()
+	_refresh_config_cache()
 	get_viewport().size_changed.connect(_refresh_screen_bounds)
 	if _built:
 		return
@@ -62,16 +69,15 @@ func _refresh_screen_bounds() -> void:
 	_screen_right = vp_size.x * 0.5 + 50.0
 
 
-func _scroll_speed() -> float:
-	return road_config.scroll_speed if road_config else 900.0
-
-
-func _road_top() -> float:
-	return road_config.road_top_y if road_config else 80.0
-
-
-func _road_bottom() -> float:
-	return road_config.road_bottom_y if road_config else 300.0
+func _refresh_config_cache() -> void:
+	if road_config:
+		_scroll_speed_cached = road_config.scroll_speed
+		_road_top_cached = road_config.road_top_y
+		_road_bottom_cached = road_config.road_bottom_y
+	else:
+		_scroll_speed_cached = RoadConfig.DEFAULT_SCROLL_SPEED
+		_road_top_cached = RoadConfig.DEFAULT_ROAD_TOP_Y
+		_road_bottom_cached = RoadConfig.DEFAULT_ROAD_BOTTOM_Y
 
 
 # --- Dashes -------------------------------------------------------------
@@ -93,7 +99,7 @@ func _build_dashes() -> void:
 func _animate_dashes(delta: float) -> void:
 	var spacing := dash_width + dash_gap
 	var total_span := dash_count * spacing
-	var s := _scroll_speed()
+	var s := _scroll_speed_cached
 	for dash in _dashes:
 		dash.position.x -= s * delta
 		if dash.position.x + dash_width < _screen_left:
@@ -102,8 +108,8 @@ func _animate_dashes(delta: float) -> void:
 
 # --- Speed lines --------------------------------------------------------
 func _build_speed_lines() -> void:
-	var top := _road_top()
-	var bot := _road_bottom()
+	var top := _road_top_cached
+	var bot := _road_bottom_cached
 	for i in speed_line_count:
 		var line := ColorRect.new()
 		line.color = speed_line_color
@@ -123,8 +129,8 @@ func _build_speed_lines() -> void:
 
 
 func _animate_speed_lines(delta: float) -> void:
-	var top := _road_top()
-	var bot := _road_bottom()
+	var top := _road_top_cached
+	var bot := _road_bottom_cached
 	for entry in _speed_lines:
 		entry.node.position.x -= entry.speed * delta
 		if entry.node.position.x + entry.node.size.x < _screen_left:
