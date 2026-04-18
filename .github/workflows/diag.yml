@@ -133,4 +133,12 @@ jobs:
           LOG_DIR="$HOME/Library/Application Support/Godot/logs"
           ls -la "$LOG_DIR" || echo "No log directory found"
           find "$LOG_DIR" -name "*.log" -exec cat {} \; 2>/dev/null || echo "No logs found"
+
+      - name: Print export_presets.cfg
+        run: |
+          echo "=== export_presets.cfg ==="
+          cat export_presets.cfg
+          
+          echo "=== Checking for hidden characters or encoding issues ==="
+          cat -A export_presets.cfg | grep -E "team_id|provisioning|code_sign|export_path"
       
