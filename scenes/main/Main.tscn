@@ -9,5 +9,5 @@
 
 [node name="Background" parent="." unique_id=1733403727 instance=ExtResource("1_u1xfj")]
 
-[node name="Player" parent="." instance=ExtResource("2_player")]
+[node name="Player" parent="." unique_id=904959829 instance=ExtResource("2_player")]
 position = Vector2(-400, 190)
