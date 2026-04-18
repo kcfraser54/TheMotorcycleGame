@@ -4,12 +4,13 @@ extends CanvasLayer
 ## All visual styling lives inside HUD.tscn as theme overrides — edit
 ## the scene to restyle without touching this script.
 
-@onready var score_label: Label = $ScorePanel/Margin/HBox/ScoreValue
+@onready var score_label: Label = %ScoreValue
 
 
 func _ready() -> void:
 	GameState.score_changed.connect(_on_score_changed)
-	_on_score_changed(GameState.current_score)
+	# No defensive initial paint: GameState.start_game() emits score_changed
+	# right after Main._ready, which fires this listener and paints "0".
 
 
 func _on_score_changed(new_score: int) -> void:

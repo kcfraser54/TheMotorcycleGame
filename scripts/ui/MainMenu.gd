@@ -6,7 +6,7 @@ extends Node
 
 @export var game_scene: PackedScene
 
-@onready var start_button: Button = $UI/Center/VBox/StartButton
+@onready var start_button: Button = %StartButton
 
 
 func _ready() -> void:
@@ -17,7 +17,7 @@ func _ready() -> void:
 
 
 func _on_start_pressed() -> void:
-	if game_scene:
-		get_tree().change_scene_to_packed(game_scene)
-	else:
-		get_tree().change_scene_to_file("res://scenes/main/Main.tscn")
+	if not game_scene:
+		push_error("MainMenu: game_scene PackedScene not assigned in Inspector.")
+		return
+	get_tree().change_scene_to_packed(game_scene)

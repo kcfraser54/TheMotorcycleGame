@@ -1,10 +1,13 @@
-[gd_scene load_steps=2 format=3 uid="uid://cxxjbvekbos56"]
+[gd_scene load_steps=3 format=3 uid="uid://cxxjbvekbos56"]
 
 [ext_resource type="Script" uid="uid://ck2akxy27yno3" path="res://scripts/ui/GameOver.gd" id="1_script"]
+[ext_resource type="PackedScene" uid="uid://daevnrd062xl8" path="res://scenes/ui/MainMenu.tscn" id="2_menu"]
 
 [node name="GameOver" type="CanvasLayer"]
+process_mode = 2
 layer = 10
 script = ExtResource("1_script")
+menu_scene = ExtResource("2_menu")
 
 [node name="Dim" type="ColorRect" parent="."]
 anchors_preset = 15
@@ -37,6 +40,7 @@ text = "GAME OVER"
 horizontal_alignment = 1
 
 [node name="FinalScore" type="Label" parent="Dim/Center/VBox"]
+unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 4
 theme_override_colors/font_color = Color(0.2, 1, 0.95, 1)
@@ -45,6 +49,7 @@ text = "SCORE  0"
 horizontal_alignment = 1
 
 [node name="HighScore" type="Label" parent="Dim/Center/VBox"]
+unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 4
 theme_override_colors/font_color = Color(1, 0.6, 1, 1)
@@ -63,6 +68,7 @@ theme_override_constants/separation = 32
 alignment = 1
 
 [node name="RestartButton" type="Button" parent="Dim/Center/VBox/Buttons"]
+unique_name_in_owner = true
 custom_minimum_size = Vector2(280, 80)
 layout_mode = 2
 theme_override_colors/font_color = Color(0.85, 0.95, 1, 1)
@@ -73,6 +79,7 @@ theme_override_font_sizes/font_size = 36
 text = "RESTART"
 
 [node name="MenuButton" type="Button" parent="Dim/Center/VBox/Buttons"]
+unique_name_in_owner = true
 custom_minimum_size = Vector2(280, 80)
 layout_mode = 2
 theme_override_colors/font_color = Color(0.85, 0.95, 1, 1)

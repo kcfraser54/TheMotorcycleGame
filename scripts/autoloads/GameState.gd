@@ -6,13 +6,16 @@ extends Node
 ## Tweak `points_per_tick` and `tick_interval` in the Inspector
 ## (Project Settings → Autoload → GameState → Edit, or open the
 ## script and adjust the @export defaults) to change the scoring rate.
+##
+## NOTE: Process mode is set to ALWAYS in code (not in a .tscn) because
+## autoloads have no scene file — the Inspector setting lives here only.
 
 signal score_changed(new_score: int)
 signal game_started
-signal game_over_signal(final_score: int)
+signal game_over(final_score: int)
 
 @export var points_per_tick: int = 1
-@export var tick_interval: float = 0.1   # seconds between ticks
+@export var tick_interval: float = 0.1   ## seconds between ticks
 
 var current_score: int = 0
 var high_score: int = 0
@@ -20,10 +23,9 @@ var is_running: bool = false
 
 var _timer: Timer
 
-
 func _ready() -> void:
-	# Autoload should keep ticking even if you later add other pause logic;
-	# we gate scoring on `is_running` instead.
+	# Score logic must keep working even when the SceneTree is paused
+	# (e.g. on Game Over) — gating is done via `is_running`, not pause.
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_timer = Timer.new()
 	_timer.wait_time = max(tick_interval, 0.001)
@@ -32,15 +34,16 @@ func _ready() -> void:
 	_timer.timeout.connect(_on_tick)
 	add_child(_timer)
 
-
 func start_game() -> void:
 	current_score = 0
 	is_running = true
+	# Emit so any subscriber (HUD) repaints to "0" without each one
+	# having to read GameState.current_score defensively.
 	score_changed.emit(current_score)
+	# Re-apply tick_interval so live Inspector tweaks between runs take effect.
 	_timer.wait_time = max(tick_interval, 0.001)
 	_timer.start()
 	game_started.emit()
-
 
 func end_game() -> void:
 	if not is_running:
@@ -49,8 +52,7 @@ func end_game() -> void:
 	_timer.stop()
 	if current_score > high_score:
 		high_score = current_score
-	game_over_signal.emit(current_score)
-
+	game_over.emit(current_score)
 
 func _on_tick() -> void:
 	if not is_running:

@@ -50,6 +50,7 @@ custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
 
 [node name="StartButton" type="Button" parent="UI/Center/VBox"]
+unique_name_in_owner = true
 custom_minimum_size = Vector2(360, 80)
 layout_mode = 2
 size_flags_horizontal = 4
