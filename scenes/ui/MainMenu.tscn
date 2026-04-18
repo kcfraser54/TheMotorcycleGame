@@ -2,11 +2,33 @@
 
 [ext_resource type="Script" uid="uid://die7y1e228kle" path="res://scripts/ui/MainMenu.gd" id="1_script"]
 [ext_resource type="PackedScene" uid="uid://qdhg0u8b78sp" path="res://scenes/background/background.tscn" id="2_bg"]
-[ext_resource type="PackedScene" uid="uid://blmcnk64pkxq8" path="res://scenes/main/Main.tscn" id="3_game"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn"]
+bg_color = Color(0.06, 0.04, 0.12, 0.6)
+border_width_left = 3
+border_width_top = 3
+border_width_right = 3
+border_width_bottom = 3
+border_color = Color(0.2, 1, 0.95, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_hover"]
+bg_color = Color(0.12, 0.06, 0.18, 0.75)
+border_width_left = 3
+border_width_top = 3
+border_width_right = 3
+border_width_bottom = 3
+border_color = Color(1, 0.6, 1, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
 
 [node name="MainMenu" type="Node"]
 script = ExtResource("1_script")
-game_scene = ExtResource("3_game")
 
 [node name="Camera2D" type="Camera2D" parent="."]
 
@@ -60,3 +82,19 @@ theme_override_colors/font_focus_color = Color(1, 0.6, 1, 1)
 theme_override_colors/font_pressed_color = Color(0.2, 1, 0.95, 1)
 theme_override_font_sizes/font_size = 40
 text = "START GAME"
+
+[node name="LeaderboardButton" type="Button" parent="UI/Center/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(360, 64)
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_colors/font_color = Color(0.85, 0.95, 1, 1)
+theme_override_colors/font_hover_color = Color(1, 0.6, 1, 1)
+theme_override_colors/font_focus_color = Color(1, 0.6, 1, 1)
+theme_override_colors/font_pressed_color = Color(0.2, 1, 0.95, 1)
+theme_override_font_sizes/font_size = 32
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_hover")
+theme_override_styles/focus = SubResource("StyleBoxFlat_btn_hover")
+text = "LEADERBOARD"

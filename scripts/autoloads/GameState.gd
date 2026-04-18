@@ -52,6 +52,9 @@ func end_game() -> void:
 	_timer.stop()
 	if current_score > high_score:
 		high_score = current_score
+	# Persist the run to the local leaderboard before broadcasting game_over,
+	# so any listener (e.g. GameOver overlay) can read fresh top scores.
+	LocalLeaderboard.submit(current_score)
 	game_over.emit(current_score)
 
 func _on_tick() -> void:
