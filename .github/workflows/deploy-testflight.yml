@@ -199,13 +199,22 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
+          if [ -z "${APPLE_TEAM_ID}" ]; then
+            echo "::error::APPLE_TEAM_ID secret is not set. Add it in Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+          if ! [[ "${APPLE_TEAM_ID}" =~ ^[A-Z0-9]{10}$ ]]; then
+            echo "::error::APPLE_TEAM_ID must be a 10-character alphanumeric Apple Developer Team ID. Got a value of length ${#APPLE_TEAM_ID}."
+            exit 1
+          fi
           sed -i '' \
             "s|application/app_store_team_id=\"[^\"]*\"|application/app_store_team_id=\"${APPLE_TEAM_ID}\"|" \
             export_presets.cfg
-          grep -q "application/app_store_team_id=\"${APPLE_TEAM_ID}\"" export_presets.cfg || {
-            echo "::error::Failed to inject APPLE_TEAM_ID into export_presets.cfg. Check the file format or that the APPLE_TEAM_ID secret is set."
+          # Verify the (non-empty) value is actually present.
+          if ! grep -q "^application/app_store_team_id=\"${APPLE_TEAM_ID}\"$" export_presets.cfg; then
+            echo "::error::Failed to inject APPLE_TEAM_ID into export_presets.cfg. The line 'application/app_store_team_id=\"...\"' may be missing or formatted unexpectedly."
             exit 1
-          }
+          fi
           echo "Team ID injected into export_presets.cfg"
 
       - name: Export iOS Xcode project (release)
@@ -215,7 +224,11 @@ jobs:
           # Capture output so we can surface actionable errors as annotations.
           GODOT_LOG="$RUNNER_TEMP/godot_export.log"
           set +e
-          godot --headless \
+          # --verbose is required for Godot to print the *specific* per-field
+          # configuration errors from the iOS exporter; without it, only the
+          # generic "Cannot export project ... due to configuration errors"
+          # line is emitted and the real cause is hidden.
+          godot --headless --verbose \
             --export-release "${IOS_EXPORT_PRESET}" \
             "${IOS_BUILD_DIR}/${IOS_XCODE_PROJECT_NAME}.xcodeproj" \
             2>&1 | tee "$GODOT_LOG"

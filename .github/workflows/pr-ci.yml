@@ -191,7 +191,7 @@ jobs:
           # Capture output so we can surface actionable errors as annotations.
           GODOT_LOG="$RUNNER_TEMP/godot_export.log"
           set +e
-          godot --headless \
+          godot --headless --verbose \
             --export-debug "${IOS_EXPORT_PRESET}" \
             "${IOS_BUILD_DIR}/${IOS_XCODE_PROJECT_NAME}.xcodeproj" \
             2>&1 | tee "$GODOT_LOG"
