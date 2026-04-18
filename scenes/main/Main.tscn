@@ -6,8 +6,4 @@
 
 [node name="Camera2D" type="Camera2D" parent="." unique_id=395819029]
 
-[node name="Background2" parent="." unique_id=1781701859 instance=ExtResource("1_u1xfj")]
-position = Vector2(999, 6)
-
 [node name="Background" parent="." unique_id=1733403727 instance=ExtResource("1_u1xfj")]
-position = Vector2(-130, -2)
