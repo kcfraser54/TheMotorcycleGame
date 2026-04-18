@@ -1,72 +1,60 @@
 # TheMotorcycleGame
 
-A Godot 4 game project. The repository root is a standard Godot project
-(`project.godot` lives at the root); a committed iOS Xcode shell lives under
-`ios/` and is built by CI.
+A Godot 4.6 motorcycle game targeting iOS, built with GDScript and the
+mobile renderer. The repository root is a standard Godot project
+(`project.godot` lives at the root).
 
-## CI/CD architecture (Option B: PCK + Xcode)
+## CI/CD Strategy
 
-To avoid Godot's iOS exporter running in CI (which is fragile around bundle
-identifiers, signing fields, and export-template validation), the pipeline
-splits responsibilities:
-
-- **Godot** exports game *content only* as a `.pck` file (no iOS preset
-  validation).
-- **Xcode** compiles and signs the iOS app from a committed Xcode project
-  shell under `ios/`.
-- **GitHub Actions** orchestrates: a Linux job runs `godot --export-pack`,
-  a macOS job drops the resulting PCK into `ios/TheMotorcycleGame/` and
-  runs `xcodebuild`.
-
-The Xcode shell under `ios/` is **generated once by Godot and committed**.
-You only need to regenerate it when the Godot version or any iOS export
-option changes (bundle id, icons, capabilities, orientation, version,
-launch storyboard, plugins, etc.).
+The pipeline uses GitHub Actions across four workflows. Godot's iOS
+exporter generates an Xcode project directly (`--export-release`), and
+Xcode then compiles, signs, and archives the app for TestFlight.
 
 ### Workflows
 
-| Workflow                                 | Trigger              | Purpose                                                                |
-|------------------------------------------|----------------------|------------------------------------------------------------------------|
-| `.github/workflows/pr-ci.yml`            | PRs to `main`        | GUT tests + export `game.pck` + unsigned `xcodebuild` of `ios/` shell  |
-| `.github/workflows/bootstrap-ios-shell.yml` | `workflow_dispatch` | Generates the iOS Xcode shell from Godot's iOS exporter, as an artifact |
-| `.github/workflows/deploy-testflight.yml`| Push to `main`       | Export `game.pck` + signed `xcodebuild archive` of `ios/` shell + TestFlight upload |
+| Workflow | File | Trigger | What it does |
+|---|---|---|---|
+| **PR Tests** | `pr-tests.yml` | Pull requests to `main` | Placeholder for automated tests (e.g. GUT). Currently passes with a no-op step — ready to wire in a test runner when tests are added. |
+| **PR Build Verification** | `pr-build.yml` | Pull requests to `main` | Installs Godot + export templates on macOS, runs `godot --export-release` to produce an Xcode project under `ios/`. Verifies the project exports cleanly — no signing or uploading. |
+| **Deploy to TestFlight** | `deploy-testflight.yml` | Manual (`workflow_dispatch`) | Full release pipeline. Exports the Xcode project via Godot, installs the Apple distribution certificate and provisioning profile from GitHub Secrets, builds and archives with `xcodebuild`, then uploads the `.ipa` to TestFlight via `xcrun altool`. |
+| **Export Diagnostic** | `diag.yml` | Manual (`workflow_dispatch`) | Debugging helper. Installs Godot + export templates, then inspects the template contents and export configuration. Used when troubleshooting export failures. |
 
-## Bootstrapping / regenerating the iOS Xcode shell
+### How the build works
 
-When you first set up the repo, or when you change Godot or any iOS export
-setting, regenerate the shell:
+1. **Godot export** — `godot --headless --export-release "iOS"` reads
+   `export_presets.cfg` (the `iOS` preset) and generates a full Xcode
+   project at `ios/TheMotorcycleGame.xcodeproj`.
+2. **Code signing** — The deploy workflow installs an Apple distribution
+   certificate and provisioning profile (both stored as base64-encoded
+   GitHub Secrets) into a temporary macOS keychain.
+3. **Xcode build** — `xcodebuild` compiles and archives the project.
+   `DEVELOPMENT_TEAM` and `PROVISIONING_PROFILE_SPECIFIER` are injected
+   from secrets — they are not stored in committed files.
+4. **TestFlight upload** — `xcrun altool` uploads the `.ipa` using an
+   App Store Connect API key (also from secrets).
 
-1. Open the **Actions** tab on GitHub and run **"Bootstrap iOS Xcode shell"**
-   (`workflow_dispatch`).
-2. When it finishes, download the `ios-shell` artifact.
-3. Replace the contents of `ios/` in the repo with the artifact contents
-   (`rm -rf ios && unzip ios-shell.zip -d ios`), and commit on a branch /
-   open a PR.
-4. From then on, `pr-ci.yml` will build the new shell against every PR's
-   freshly-exported PCK.
+### Required Secrets
 
-The bootstrap workflow strips any `*.pck` files from the artifact — the PCK
-is regenerated on every CI run via `--export-pack` and must never be
-committed (see `.gitignore`).
+PR workflows run unsigned and read **no secrets**. The TestFlight deploy
+workflow needs the following configured in **Settings → Secrets → Actions**:
 
-## Required secrets
+| Secret | Purpose |
+|---|---|
+| `APPLE_CERTIFICATE_BASE64` | Base64-encoded `.p12` distribution certificate |
+| `APPLE_CERTIFICATE_PASSWORD` | Password to decrypt the `.p12` |
+| `APPLE_PROVISIONING_PROFILE` | Base64-encoded `.mobileprovision` file |
+| `APPLE_PROVISIONING_PROFILE_NAME` | Name of the provisioning profile for Xcode |
+| `APPLE_TEAM_ID` | Apple Developer Team ID (passed to `xcodebuild`) |
+| `APP_STORE_CONNECT_API_KEY_ID` | App Store Connect API key ID |
+| `APP_STORE_CONNECT_API_ISSUER_ID` | App Store Connect issuer ID |
+| `APP_STORE_CONNECT_API_KEY_BASE64` | Base64-encoded `.p8` API key file |
 
-PR CI runs fully unsigned and reads no secrets. The TestFlight deploy
-workflow needs:
+### Notes
 
-- `APPLE_CERTIFICATE_BASE64`, `APPLE_CERTIFICATE_PASSWORD`,
-  `APPLE_PROVISIONING_PROFILE`, `APPLE_TEAM_ID`,
-  `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_API_ISSUER_ID`,
-  `APP_STORE_CONNECT_API_KEY_BASE64`.
-
-`APPLE_TEAM_ID` is now consumed by `xcodebuild` (`DEVELOPMENT_TEAM=...`)
-and the `ExportOptions.plist` only — it is **no longer** injected into
-`export_presets.cfg`.
-
-## Notes
-
-- `export_presets.cfg` **must** be committed (Godot gitignores it by
-  default). The PCK export reads the `iOS` preset to know which resources
-  to include.
-- Local iOS development is unchanged: open `ios/TheMotorcycleGame.xcodeproj`
-  in Xcode after running `godot --headless --export-pack iOS ios/TheMotorcycleGame/TheMotorcycleGame.pck`.
+- `export_presets.cfg` **must** be committed — Godot reads it to determine
+  export settings (resources to include, architecture, icons, etc.).
+- The `ios/` directory is generated at build time by CI and should not be
+  committed. The `.gitignore` excludes build artifacts within it.
+- Local iOS development: run
+  `godot --headless --export-release "iOS" ios/TheMotorcycleGame.xcodeproj`,
+  then open the resulting project in Xcode.
