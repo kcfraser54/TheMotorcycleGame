@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="RoadConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/resources/RoadConfig.gd" id="1_roadcfg"]
+
+[resource]
+script = ExtResource("1_roadcfg")
+road_top_y = 80.0
+road_bottom_y = 300.0
+scroll_speed = 900.0
