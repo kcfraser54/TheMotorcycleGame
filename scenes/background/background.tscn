@@ -5,10 +5,10 @@
 [ext_resource type="Texture2D" uid="uid://cshjr1tvfcoyc" path="res://assets/sprites/synthcity/near-buildings.png" id="3_wax1t"]
 [ext_resource type="Texture2D" uid="uid://dq7h7m15pul6p" path="res://assets/sprites/synthcity/sun.png" id="4_1tmhi"]
 [ext_resource type="Script" uid="uid://dhnw11kx4uj1x" path="res://scripts/gameplay/Background.gd" id="5_bg"]
-[ext_resource type="Script" path="res://scripts/gameplay/Road.gd" id="6_road"]
+[ext_resource type="Script" uid="uid://dpw2845yi516c" path="res://scripts/gameplay/Road.gd" id="6_road"]
 [ext_resource type="Resource" path="res://resources/default_road.tres" id="7_roadcfg"]
 
-[node name="Background" type="Node2D"]
+[node name="Background" type="Node2D" unique_id=1251194396]
 script = ExtResource("5_bg")
 
 [node name="Sky" type="Sprite2D" parent="." unique_id=310627069]
@@ -53,7 +53,7 @@ position = Vector2(286, 39.5)
 scale = Vector2(2.8696873, 2.5625)
 texture = ExtResource("3_wax1t")
 
-[node name="Road" type="Node2D" parent="."]
+[node name="Road" type="Node2D" parent="." unique_id=1237418445]
 z_index = -980
 script = ExtResource("6_road")
 road_config = ExtResource("7_roadcfg")

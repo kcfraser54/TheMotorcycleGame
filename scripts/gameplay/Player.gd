@@ -42,6 +42,12 @@ var _finger_zones: Dictionary[int, int] = {}
 # `_any_finger_in()` be O(1) instead of iterating every physics tick.
 var _zone_counts: Dictionary[int, int] = {}
 
+# Pixels the finger must travel vertically before committing to UP or DOWN.
+@export var vertical_dead_zone: float = 20.0
+
+# Stores the Y position where each left-side finger first touched down.
+var _finger_origin_y: Dictionary[int, float] = {}
+
 # --- Cached screen geometry --------------------------------------------
 var _screen_size: Vector2
 var _screen_left: float
@@ -63,7 +69,7 @@ func reset() -> void:
 	velocity = Vector2.ZERO
 	_finger_zones.clear()
 	_zone_counts.clear()
-
+	_finger_origin_y.clear()  # add this line
 
 func _physics_process(delta: float) -> void:
 	if not _alive:
@@ -104,6 +110,7 @@ func _physics_process(delta: float) -> void:
 		_alive = false
 		_finger_zones.clear()
 		_zone_counts.clear()
+		_finger_origin_y.clear() 
 		died.emit()
 
 
@@ -113,11 +120,28 @@ func _input(event: InputEvent) -> void:
 		return
 	if event is InputEventScreenTouch:
 		if event.pressed:
-			_set_finger_zone(event.index, _zone_for_position(event.position))
+			var zone := _zone_for_position(event.position)
+			_set_finger_zone(event.index, zone)
+			if zone != Zone.ACCEL:
+				_finger_origin_y[event.index] = event.position.y
 		else:
 			_clear_finger(event.index)
+			_finger_origin_y.erase(event.index)
 	elif event is InputEventScreenDrag:
-		_set_finger_zone(event.index, _zone_for_position(event.position))
+		if event.position.x >= _screen_size.x * 0.5:
+			# Finger slid into right half — switch to ACCEL.
+			_set_finger_zone(event.index, Zone.ACCEL)
+			_finger_origin_y.erase(event.index)
+		else:
+			# Left half: resolve direction from how far the finger has moved.
+			var origin_y: float = _finger_origin_y.get(event.index, event.position.y)
+			var delta_y: float = event.position.y - origin_y
+			if delta_y < -vertical_dead_zone:
+				_set_finger_zone(event.index, Zone.UP)
+			elif delta_y > vertical_dead_zone:
+				_set_finger_zone(event.index, Zone.DOWN)
+			else:
+				_set_finger_zone(event.index, Zone.NONE)
 
 
 # --- Helpers ------------------------------------------------------------
@@ -128,13 +152,9 @@ func _refresh_screen_bounds() -> void:
 
 
 func _zone_for_position(pos: Vector2) -> int:
-	var w: float = _screen_size.x
-	var h: float = _screen_size.y
-	if pos.x >= w * 0.5:
+	if pos.x >= _screen_size.x * 0.5:
 		return Zone.ACCEL
-	if pos.y < h * 0.5:
-		return Zone.UP
-	return Zone.DOWN
+	return Zone.NONE  # Left half: direction determined by drag delta, not position
 
 
 func _set_finger_zone(idx: int, zone: int) -> void:
@@ -165,4 +185,3 @@ func _road_top() -> float:
 
 func _road_bottom() -> float:
 	return road_config.road_bottom_y if road_config else 300.0
-
